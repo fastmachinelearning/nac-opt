@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 
 from data import DeepsetsDataset
-from models.blocks import *
+from models.blocks import DeepSetsArchitecture, Phi, Rho
 from utils.processor import get_acc, train
 
 large_phi = Phi(widths=[3, 32, 32], acts=[nn.ReLU(), nn.ReLU()], norms=["batch", "batch"])
@@ -47,7 +47,9 @@ def objective(trial):
 
     with open("./NAC_Deepsets_HPO_trials.txt", "a") as file:
         file.write(
-            f"Large Model, Trial {trial.number}, Val Accuracy: {test_accuracy}, Val Accuracy: {test_accuracy}, Validation Loss: {validation_loss}, Hyperparams: {trial.params}\n"
+            f"Large Model, Trial {trial.number}, Val Accuracy: {test_accuracy}, "
+            + f"Val Accuracy: {test_accuracy}, Validation Loss: {validation_loss}, "
+            + f"Hyperparams: {trial.params}\n"
         )
 
     return val_accuracy
