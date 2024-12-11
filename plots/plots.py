@@ -1,13 +1,16 @@
-import pandas as pd
 import matplotlib.pyplot as plt
+import pandas as pd
 from matplotlib.cm import ScalarMappable
 
-def scatterplot_2d(source_csv: str, 
-                   columns: list, 
-                   x_axis_name: str,
-                   y_axis_name: str,
-                   output_path: str='scatterplot_2d.png',
-                   limit: int=1000):    
+
+def scatterplot_2d(
+    source_csv: str,
+    columns: list,
+    x_axis_name: str,
+    y_axis_name: str,
+    output_path: str = 'scatterplot_2d.png',
+    limit: int = 1000,
+):
     '''
     source_csv - input csv file
     columns - column name mapping (e.g., ['config', 'date', 'bops', 'accuracy_top1'])
@@ -23,20 +26,28 @@ def scatterplot_2d(source_csv: str,
     assert x_axis_name in columns, 'x_axis_name missing in columns'
     assert y_axis_name in columns, 'y_axis_name missing in columns'
 
-    fig, ax = plt.subplots(figsize=(7,5))
+    fig, ax = plt.subplots(figsize=(7, 5))
 
     # Select colormap and define count
     cm = plt.cm.get_cmap('viridis_r')
     count = [x for x in range(len(df))]
 
-    ax.scatter(df[x_axis_name].values, df[y_axis_name].values, marker='^', alpha=0.8, c=count, 
-            cmap=cm, label='Discovered Model', s=10)
+    ax.scatter(
+        df[x_axis_name].values,
+        df[y_axis_name].values,
+        marker='^',
+        alpha=0.8,
+        c=count,
+        cmap=cm,
+        label='Discovered Model',
+        s=10,
+    )
     ax.set_title('Morph Search Results')
     ax.set_xlabel(x_axis_name, fontsize=13)
     ax.set_ylabel(y_axis_name, fontsize=13)
     ax.legend(fancybox=True, fontsize=10, framealpha=1, borderpad=0.2, loc='lower right')
     ax.grid(True, alpha=0.3)
-    
+
     # Eval Count bar
     norm = plt.Normalize(0, len(df))
     sm = ScalarMappable(norm=norm, cmap=cm)
@@ -47,11 +58,7 @@ def scatterplot_2d(source_csv: str,
     plt.savefig(output_path)
 
 
-def swarmplot_1d(source_csv: str, 
-                 columns: list, 
-                 axis_name: str,
-                 output_path: str='swarmplot.png',
-                 limit: int=1000):
+def swarmplot_1d(source_csv: str, columns: list, axis_name: str, output_path: str = 'swarmplot.png', limit: int = 1000):
     '''
     source_csv - input csv file
     columns - column name mapping (e.g., ['config', 'date', 'bops', 'accuracy_top1'])
@@ -68,8 +75,7 @@ def swarmplot_1d(source_csv: str,
     assert axis_name in columns, 'axis_name missing in columns'
 
     sns.set(style='whitegrid')
-    palette = sns.color_palette("viridis_r", n_colors=len(df) )
-    sns.swarmplot(x=[1]*len(df), y=axis_name, hue=df.index.tolist(), data=df, palette=palette)
-    plt.legend([],[], frameon=False)
+    palette = sns.color_palette("viridis_r", n_colors=len(df))
+    sns.swarmplot(x=[1] * len(df), y=axis_name, hue=df.index.tolist(), data=df, palette=palette)
+    plt.legend([], [], frameon=False)
     plt.savefig(output_path)
-
