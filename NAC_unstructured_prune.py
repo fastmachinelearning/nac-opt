@@ -71,9 +71,9 @@ def get_parameters_to_prune(model, bias=False):
     parameters_to_prune = []
     for name, module in model.named_modules():
         if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.Linear):
-            parameters_to_prune.append((module, 'weight'))
+            parameters_to_prune.append((module, "weight"))
             if bias and module.bias != None:
-                parameters_to_prune.append((module, 'bias'))
+                parameters_to_prune.append((module, "bias"))
 
     return tuple(parameters_to_prune)
 
@@ -88,38 +88,38 @@ def get_sparsities(model):
             total += module.weight_mask.numel()
             sparsities.append(layer_sparsity)
 
-    print('Overall sparsity: ', zeros / total)
+    print("Overall sparsity: ", zeros / total)
     return tuple(sparsities)
 
 
 if __name__ == "__main__":
-    device = torch.device('cuda:4')
+    device = torch.device("cuda:4")
     batch_size = 1024
     train_loader, val_loader, test_loader = setup_data_loaders(
         batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2
     )
-    print('Loaded Dataset...')
+    print("Loaded Dataset...")
     model = NAC().to(device)
     prune.global_unstructured(get_parameters_to_prune(model, bias=False), pruning_method=prune.L1Unstructured, amount=0)
     criterion = torch.nn.MSELoss()
     optimizer = torch.optim.RMSprop(model.parameters(), lr=0.00015, weight_decay=2.2e-9)  # chagned lr from .0015
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=300)
 
-    print('Starting run...')
+    print("Starting run...")
     for prune_iter in range(0, 7):
-        print('Starting prune iter: ', prune_iter)
+        print("Starting prune iter: ", prune_iter)
         validation_loss = train(model, optimizer, scheduler, criterion, train_loader, val_loader, device, 300)
         # val_mean_dist = get_mean_dist(model, val_loader, device, psz=11)
         test_mean_dist = get_mean_dist(model, test_loader, device, psz=11)
-        print('Test Mean Distance: ', test_mean_dist)
+        print("Test Mean Distance: ", test_mean_dist)
 
         sparsities = get_sparsities(model)
-        print('Sparsity: ', sparsities)
-        torch.save(model.state_dict(), 'models/pruned_unquantized_LeakyReLU_NAC_iter' + str(prune_iter) + '.pth')
+        print("Sparsity: ", sparsities)
+        torch.save(model.state_dict(), "models/pruned_unquantized_LeakyReLU_NAC_iter" + str(prune_iter) + ".pth")
         test_model = NAC().to(device)
-        test_model.load_state_dict(torch.load('models/pruned_unquantized_LeakyReLU_NAC_iter' + str(prune_iter) + '.pth'))
+        test_model.load_state_dict(torch.load("models/pruned_unquantized_LeakyReLU_NAC_iter" + str(prune_iter) + ".pth"))
         test_mean_dist = get_mean_dist(model, test_loader, device, psz=11)
-        print('Test Mean Distance: ', test_mean_dist)
+        print("Test Mean Distance: ", test_mean_dist)
         prune.global_unstructured(
             get_parameters_to_prune(model, bias=False), pruning_method=prune.L1Unstructured, amount=0.2
         )
@@ -127,4 +127,4 @@ if __name__ == "__main__":
     for module, name in get_parameters_to_prune(model):
         prune.remove(module, name)
 
-    torch.save(model.state_dict(), 'models/pruned_unquantized_LeakyReLU_NAC.pth')
+    torch.save(model.state_dict(), "models/pruned_unquantized_LeakyReLU_NAC.pth")

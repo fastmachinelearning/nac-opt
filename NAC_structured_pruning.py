@@ -6,7 +6,7 @@ from NAC import NAC, get_parameters_to_prune
 from data.BraggnnDataset import setup_data_loaders
 from utils.utils import *
 
-device = torch.device('cuda:4')
+device = torch.device("cuda:4")
 
 
 class NAC(torch.nn.Module):
@@ -74,7 +74,7 @@ train_loader, val_loader, test_loader = setup_data_loaders(
 )
 model = NAC()
 prune.global_unstructured(get_parameters_to_prune(model, bias=False), pruning_method=prune.L1Unstructured, amount=0)
-model.load_state_dict(torch.load('/home/ubuntu/luke/Morph/models/d0.pth'))
+model.load_state_dict(torch.load("/home/ubuntu/luke/Morph/models/d0.pth"))
 prune.global_unstructured(get_parameters_to_prune(model, bias=False), pruning_method=prune.L1Unstructured, amount=0)
 for module, name in get_parameters_to_prune(model, bias=False):
     prune.remove(module, name)
@@ -84,7 +84,7 @@ val_mean_dist = get_mean_dist(model, val_loader, device, psz=11)
 print(val_mean_dist)
 test_mean_dist = get_mean_dist(model, test_loader, device, psz=11)
 print(test_mean_dist)
-torch.save(model.state_dict(), '/home/ubuntu/luke/Morph/models/removed_iter0.pth')
+torch.save(model.state_dict(), "/home/ubuntu/luke/Morph/models/removed_iter0.pth")
 
 """
 model = model.to('cpu')

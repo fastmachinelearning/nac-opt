@@ -35,13 +35,13 @@ def evaluate_BraggNN(model, train_loader, val_loader, device, num_epochs=50, lr=
     )  # Just for reference, we are not optimizing for this.
 
     print(
-        'Mean Distance: ',
+        "Mean Distance: ",
         mean_distance,
-        ', Inference time: ',
+        ", Inference time: ",
         inference_time,
-        ', Validation Loss: ',
+        ", Validation Loss: ",
         validation_loss,
-        ', Param Count: ',
+        ", Param Count: ",
         param_count,
     )
     return mean_distance, inference_time, validation_loss, param_count
@@ -54,7 +54,7 @@ def evaluate_Deepsets(model, train_loader, val_loader, device, num_epochs=80, lr
     # Train Model
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=3)
+    scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=3)
     validation_loss = train(model, optimizer, scheduler, criterion, train_loader, val_loader, device, num_epochs, patience=7)
 
     # Evaluate Performance
@@ -67,13 +67,13 @@ def evaluate_Deepsets(model, train_loader, val_loader, device, num_epochs=80, lr
     )  # Just for reference, we are not optimizing for this.
 
     print(
-        'Accuracy: ',
+        "Accuracy: ",
         acc,
-        ', Inference time: ',
+        ", Inference time: ",
         inference_time,
-        ', Validation Loss: ',
+        ", Validation Loss: ",
         validation_loss,
-        ', Param Count: ',
+        ", Param Count: ",
         param_count,
     )
     return acc, inference_time, validation_loss, param_count
@@ -81,7 +81,7 @@ def evaluate_Deepsets(model, train_loader, val_loader, device, num_epochs=80, lr
 
 def train(model, optimizer, scheduler, criterion, train_loader, valid_loader, device, num_epochs, patience=5):
     curr_patience = patience
-    previous_epoch_loss = float('inf')
+    previous_epoch_loss = float("inf")
 
     for epoch in range(num_epochs):
         # Training phase

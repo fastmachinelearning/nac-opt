@@ -40,7 +40,7 @@ def compute_distance_histogram(
 
 def evaluate(model):
     num_epochs = 300
-    device = torch.device('cuda:4')
+    device = torch.device("cuda:4")
     model = model.to(device)
 
     criterion = torch.nn.MSELoss()
@@ -59,15 +59,15 @@ def evaluate(model):
     test_euclidean_distance = compute_distance_histogram(model, test_loader)
 
     print(
-        'Test Mean Distance: ',
+        "Test Mean Distance: ",
         test_mean_distance,
-        'Val Mean Distance: ',
+        "Val Mean Distance: ",
         val_mean_distance,
-        ', Inference time: ',
+        ", Inference time: ",
         inference_time,
-        ', Validation Loss: ',
+        ", Validation Loss: ",
         validation_loss,
-        ', Param Count: ',
+        ", Param Count: ",
         param_count,
     )
     return test_euclidean_distance
@@ -76,7 +76,7 @@ def evaluate(model):
 if __name__ == "__main__":
     batch_size = 256
     # train_loader, val_loader, test_loader = setup_data_loaders(batch_size, IMG_SIZE = 11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2)
-    print('Loaded Dataset...')
+    print("Loaded Dataset...")
 
     # Create BraggNN model
     Blocks = nn.Sequential(
@@ -111,18 +111,18 @@ if __name__ == "__main__":
 
     total_bops = attn_bops + conv_bops + mlp_bops
     print(
-        'BraggNN Model w/ BOPs = ',
+        "BraggNN Model w/ BOPs = ",
         total_bops,
-        ', Attn Bops = ',
+        ", Attn Bops = ",
         attn_bops,
-        ', Conv Bops = ',
+        ", Conv Bops = ",
         conv_bops,
-        ', MLP Bops =',
+        ", MLP Bops =",
         mlp_bops,
     )
     print(model)
     print()
-    print('Evaluating Model...')
+    print("Evaluating Model...")
     test_euclidean_distance = evaluate(model)
 
     with open("./model_evaluations.txt", "a") as file:

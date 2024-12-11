@@ -31,37 +31,37 @@ def clean_patch(p, center):
 
 
 class BraggNNDataset(Dataset):
-    def __init__(self, psz=11, rnd_shift=0, use='train', train_frac=0.8, test_frac=0.1):
+    def __init__(self, psz=11, rnd_shift=0, use="train", train_frac=0.8, test_frac=0.1):
         self.psz = psz
         self.rnd_shift = rnd_shift
 
-        with h5py.File('./data/peaks-exp4train-psz%d.hdf5' % psz, "r") as h5fd:
-            total_samples = h5fd['peak_fidx'].shape[0]
+        with h5py.File("./data/peaks-exp4train-psz%d.hdf5" % psz, "r") as h5fd:
+            total_samples = h5fd["peak_fidx"].shape[0]
             train_end = int(train_frac * total_samples)
             test_start = int((1 - test_frac) * total_samples)
 
-            if use == 'train':
+            if use == "train":
                 sti, edi = 0, train_end
-            elif use == 'validation':
+            elif use == "validation":
                 sti, edi = train_end, test_start
-            elif use == 'test':
+            elif use == "test":
                 sti, edi = test_start, None
             else:
                 logging.error(
                     f"Unsupported use: {use}. This class should be used for building training, validation, or test set"
                 )
 
-            mask = h5fd['npeaks'][sti:edi] == 1  # use only single-peak patches
-            mask = mask & ((h5fd['deviations'][sti:edi] >= 0) & (h5fd['deviations'][sti:edi] < 1))
+            mask = h5fd["npeaks"][sti:edi] == 1  # use only single-peak patches
+            mask = mask & ((h5fd["deviations"][sti:edi] >= 0) & (h5fd["deviations"][sti:edi] < 1))
 
-            self.peak_fidx = h5fd['peak_fidx'][sti:edi][mask]
-            self.peak_row = h5fd['peak_row'][sti:edi][mask]
-            self.peak_col = h5fd['peak_col'][sti:edi][mask]
+            self.peak_fidx = h5fd["peak_fidx"][sti:edi][mask]
+            self.peak_row = h5fd["peak_row"][sti:edi][mask]
+            self.peak_col = h5fd["peak_col"][sti:edi][mask]
 
         self.fidx_base = self.peak_fidx.min()
         # only loaded frames that will be used
-        with h5py.File('./data/frames-exp4train.hdf5', 'r') as h5fd:
-            self.frames = h5fd['frames'][self.peak_fidx.min() : self.peak_fidx.max() + 1]
+        with h5py.File("./data/frames-exp4train.hdf5", "r") as h5fd:
+            self.frames = h5fd["frames"][self.peak_fidx.min() : self.peak_fidx.max() + 1]
 
         self.len = self.peak_fidx.shape[0]
 
@@ -90,7 +90,7 @@ class BraggNNDataset(Dataset):
             r_pad_b = self.psz - r_pad_t - crop_img.shape[0]
 
             logging.warn(f"sample {idx} touched edge when crop the patch: {crop_img.shape}")
-            crop_img = np.pad(crop_img, ((r_pad_t, r_pad_b), (c_pad_l, c_pad_r)), mode='constant')
+            crop_img = np.pad(crop_img, ((r_pad_t, r_pad_b), (c_pad_l, c_pad_r)), mode="constant")
         else:
             c_pad_l, r_pad_t = 0, 0
 
@@ -113,7 +113,7 @@ class BraggNNDataset(Dataset):
 
 
 def setup_data_loaders(batch_size, IMG_SIZE, aug=0, num_workers=4, pin_memory=False, prefetch_factor=2):
-    ds_train = BraggNNDataset(psz=IMG_SIZE, rnd_shift=aug, use='train')
+    ds_train = BraggNNDataset(psz=IMG_SIZE, rnd_shift=aug, use="train")
     dl_train = DataLoader(
         ds_train,
         batch_size=batch_size,
@@ -125,7 +125,7 @@ def setup_data_loaders(batch_size, IMG_SIZE, aug=0, num_workers=4, pin_memory=Fa
     )
     # TODO: Change prefetch_factor back to 2 and pin_memory to true
 
-    ds_valid = BraggNNDataset(psz=IMG_SIZE, rnd_shift=0, use='validation')
+    ds_valid = BraggNNDataset(psz=IMG_SIZE, rnd_shift=0, use="validation")
     dl_valid = DataLoader(
         ds_valid,
         batch_size=batch_size,
@@ -136,7 +136,7 @@ def setup_data_loaders(batch_size, IMG_SIZE, aug=0, num_workers=4, pin_memory=Fa
         pin_memory=pin_memory,
     )
 
-    ds_test = BraggNNDataset(psz=IMG_SIZE, rnd_shift=0, use='test')
+    ds_test = BraggNNDataset(psz=IMG_SIZE, rnd_shift=0, use="test")
     dl_test = DataLoader(
         ds_test,
         batch_size=batch_size,

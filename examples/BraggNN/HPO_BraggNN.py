@@ -16,25 +16,25 @@ from models.train_utils import *
 
 
 def create_scheduler(optimizer, trial):
-    scheduler_name = trial.suggest_categorical('scheduler', ['StepLR', 'CosineAnnealingLR', 'ExponentialLR'])
-    if scheduler_name == 'StepLR':
-        step_size = trial.suggest_int('step_size', 1, 100)
-        gamma = trial.suggest_float('gamma', 0.1, 1.0)
+    scheduler_name = trial.suggest_categorical("scheduler", ["StepLR", "CosineAnnealingLR", "ExponentialLR"])
+    if scheduler_name == "StepLR":
+        step_size = trial.suggest_int("step_size", 1, 100)
+        gamma = trial.suggest_float("gamma", 0.1, 1.0)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=step_size, gamma=gamma)
-    elif scheduler_name == 'CosineAnnealingLR':
-        T_max = trial.suggest_int('T_max', 10, 300)
-        eta_min = trial.suggest_float('eta_min', 1e-5, 1e-2, log=True)
+    elif scheduler_name == "CosineAnnealingLR":
+        T_max = trial.suggest_int("T_max", 10, 300)
+        eta_min = trial.suggest_float("eta_min", 1e-5, 1e-2, log=True)
         scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=T_max, eta_min=eta_min)
-    elif scheduler_name == 'ExponentialLR':
-        gamma = trial.suggest_float('gamma', 0.1, 1.0)
+    elif scheduler_name == "ExponentialLR":
+        gamma = trial.suggest_float("gamma", 0.1, 1.0)
         scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=gamma)
     return scheduler
 
 
 def objective(trial):
-    lr = trial.suggest_float('lr', 1e-5, 5e-2, log=True)
-    weight_decay = trial.suggest_float('weight_decay', 1e-5, 1e-3, log=True)
-    momentum = trial.suggest_float('momentum', 0.7, 0.999)
+    lr = trial.suggest_float("lr", 1e-5, 5e-2, log=True)
+    weight_decay = trial.suggest_float("weight_decay", 1e-5, 1e-3, log=True)
+    momentum = trial.suggest_float("momentum", 0.7, 0.999)
 
     # Initialize the model
     # BraggNN model
@@ -75,17 +75,17 @@ def objective(trial):
     return mean_dist
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     batch_size = 256
     IMG_SIZE = 11
     aug = 1
     num_epochs = 300
-    device = torch.device('cuda:3')
+    device = torch.device("cuda:3")
     print(device)
     train_loader, val_loader, test_loader = setup_data_loaders(
         batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2
     )
-    print('Loaded Dataset...')
+    print("Loaded Dataset...")
     n_trials = 100
-    study = optuna.create_study(direction='minimize', pruner=optuna.pruners.MedianPruner(n_warmup_steps=10))
+    study = optuna.create_study(direction="minimize", pruner=optuna.pruners.MedianPruner(n_warmup_steps=10))
     study.optimize(objective, n_trials=n_trials)

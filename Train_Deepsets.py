@@ -10,7 +10,7 @@ from data.DeepsetsDataset import setup_data_loaders
 
 torch.manual_seed(42)
 np.random.seed(42)
-device = torch.device('cpu')  # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")  # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 class DeepSetsInv(nn.Module):
@@ -81,10 +81,10 @@ if __name__ == "__main__":
     # Define the loss function and optimizer
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0032)  # lr=0.0032)
-    lr_scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=3)
+    lr_scheduler = ReduceLROnPlateau(optimizer, mode="max", factor=0.1, patience=3)
 
     # Set up data loaders
-    base_file_name = 'jet_images_c8_minpt2_ptetaphi_robust_fast'
+    base_file_name = "jet_images_c8_minpt2_ptetaphi_robust_fast"
     batch_size = 1024
     num_workers = 8
     train_loader, val_loader, test_loader = setup_data_loaders(

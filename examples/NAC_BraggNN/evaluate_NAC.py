@@ -40,7 +40,7 @@ def compute_distance_histogram(
 
 def evaluate(model):
     num_epochs = 300
-    device = torch.device('cuda:5')
+    device = torch.device("cuda:5")
     model = model.to(device)
 
     criterion = torch.nn.MSELoss()
@@ -58,15 +58,15 @@ def evaluate(model):
     test_euclidean_distance = compute_distance_histogram(model, test_loader)
 
     print(
-        'Test Mean Distance: ',
+        "Test Mean Distance: ",
         test_mean_distance,
-        'Val Mean Distance: ',
+        "Val Mean Distance: ",
         val_mean_distance,
-        ', Inference time: ',
+        ", Inference time: ",
         inference_time,
-        ', Validation Loss: ',
+        ", Validation Loss: ",
         validation_loss,
-        ', Param Count: ',
+        ", Param Count: ",
         param_count,
     )
     return test_euclidean_distance
@@ -77,15 +77,15 @@ if __name__ == "__main__":
     train_loader, val_loader, test_loader = setup_data_loaders(
         batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2
     )
-    print('Loaded Dataset...')
+    print("Loaded Dataset...")
 
     # NAC Model
     Blocks = nn.Sequential(
-        ConvBlock([32, 4, 32], [1, 1], [nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)], [None, 'batch'], img_size=9),
-        ConvBlock([32, 4, 32], [1, 3], [nn.GELU(), nn.GELU()], ['batch', 'layer'], img_size=9),
-        ConvBlock([32, 8, 64], [3, 3], [nn.GELU(), None], ['layer', None], img_size=7),
+        ConvBlock([32, 4, 32], [1, 1], [nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)], [None, "batch"], img_size=9),
+        ConvBlock([32, 4, 32], [1, 3], [nn.GELU(), nn.GELU()], ["batch", "layer"], img_size=9),
+        ConvBlock([32, 8, 64], [3, 3], [nn.GELU(), None], ["layer", None], img_size=7),
     )
-    mlp = MLP(widths=[576, 8, 4, 4, 2], acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None], norms=['layer', None, 'layer', None])
+    mlp = MLP(widths=[576, 8, 4, 4, 2], acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None], norms=["layer", None, "layer", None])
     model = CandidateArchitecture(Blocks, mlp, 32)
 
     conv_bops = calculate_convblock_bops(Blocks[0], sparsity_dict=None, weight_bit_width=32, activation_bit_width=32)
@@ -93,10 +93,10 @@ if __name__ == "__main__":
     conv_bops += calculate_convblock_bops(Blocks[2], sparsity_dict=None, weight_bit_width=32, activation_bit_width=32)
     mlp_bops = calculate_mlpblock_bops(mlp, sparsity_dict=None, weight_bit_width=32, activation_bit_width=32)
     total_bops = conv_bops + mlp_bops
-    print('NAC Model w/ BOPs = ', total_bops, ', Conv Bops = ', conv_bops, ', MLP Bops =', mlp_bops)
+    print("NAC Model w/ BOPs = ", total_bops, ", Conv Bops = ", conv_bops, ", MLP Bops =", mlp_bops)
     print(model)
     print()
-    print('Evaluating Model...')
+    print("Evaluating Model...")
     test_euclidean_distance = evaluate(model)
 
     with open("./model_evaluations.txt", "a") as file:

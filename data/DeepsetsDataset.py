@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader, Dataset
 
 
 class DeepSetDataset(Dataset):
-    def __init__(self, data_files, target_files, use='train', train_frac=0.8, test_frac=0.1):
+    def __init__(self, data_files, target_files, use="train", train_frac=0.8, test_frac=0.1):
         self.data = []
         self.targets = []
 
@@ -20,11 +20,11 @@ class DeepSetDataset(Dataset):
         train_end = int(train_frac * total_samples)
         test_start = int((1 - test_frac) * total_samples)
 
-        if use == 'train':
+        if use == "train":
             sti, edi = 0, train_end
-        elif use == 'validation':
+        elif use == "validation":
             sti, edi = train_end, test_start
-        elif use == 'test':
+        elif use == "test":
             sti, edi = test_start, None
         else:
             raise ValueError(
@@ -50,12 +50,12 @@ class DeepSetDataset(Dataset):
 
 
 def setup_data_loaders(base_file_name, batch_size=32, num_workers=4, pin_memory=False, prefetch_factor=2):
-    train_data_files = [f'./data/normalized_data3/x_train_{base_file_name}.npy']
-    train_target_files = [f'./data/normalized_data3/y_train_{base_file_name}.npy']
-    test_data_files = [f'./data/normalized_data3/x_test_{base_file_name}.npy']
-    test_target_files = [f'./data/normalized_data3/y_test_{base_file_name}.npy']
+    train_data_files = [f"./data/normalized_data3/x_train_{base_file_name}.npy"]
+    train_target_files = [f"./data/normalized_data3/y_train_{base_file_name}.npy"]
+    test_data_files = [f"./data/normalized_data3/x_test_{base_file_name}.npy"]
+    test_target_files = [f"./data/normalized_data3/y_test_{base_file_name}.npy"]
 
-    ds_train = DeepSetDataset(train_data_files, train_target_files, use='train')
+    ds_train = DeepSetDataset(train_data_files, train_target_files, use="train")
     dl_train = DataLoader(
         ds_train,
         batch_size=batch_size,
@@ -66,7 +66,7 @@ def setup_data_loaders(base_file_name, batch_size=32, num_workers=4, pin_memory=
         pin_memory=pin_memory,
     )
 
-    ds_valid = DeepSetDataset(train_data_files, train_target_files, use='validation')
+    ds_valid = DeepSetDataset(train_data_files, train_target_files, use="validation")
     dl_valid = DataLoader(
         ds_valid,
         batch_size=batch_size,
@@ -77,7 +77,7 @@ def setup_data_loaders(base_file_name, batch_size=32, num_workers=4, pin_memory=
         pin_memory=pin_memory,
     )
 
-    ds_test = DeepSetDataset(test_data_files, test_target_files, use='test')
+    ds_test = DeepSetDataset(test_data_files, test_target_files, use="test")
     dl_test = DataLoader(
         ds_test,
         batch_size=batch_size,

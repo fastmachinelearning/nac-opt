@@ -41,9 +41,9 @@ class ConvBlock(torch.nn.Module):
             )  # padding = (kernels[i] - 1) // 2)
             if kernels[i] == 3:
                 img_size -= 2
-            if norms[i] == 'batch':
+            if norms[i] == "batch":
                 self.layers.append(nn.BatchNorm2d(channels[i + 1]))
-            elif norms[i] == 'layer':
+            elif norms[i] == "layer":
                 self.layers.append(nn.LayerNorm([channels[i + 1], img_size, img_size]))  # DEPRECATED
             if acts[i] != None:
                 self.layers.append(acts[i])
@@ -61,9 +61,9 @@ class MLP(torch.nn.Module):
         self.layers = []
         for i in range(len(acts)):
             self.layers.append(nn.Linear(widths[i], widths[i + 1]))
-            if norms[i] == 'batch':
+            if norms[i] == "batch":
                 self.layers.append(nn.BatchNorm1d(widths[i + 1]))
-            elif norms[i] == 'layer':
+            elif norms[i] == "layer":
                 self.layers.append(nn.LayerNorm(widths[i + 1]))  # DEPRECATED
             # elif None, skip
             if acts[i] != None:
@@ -77,20 +77,20 @@ class MLP(torch.nn.Module):
 def sample_ConvAttn(trial, prefix):
     channel_space = (1, 2, 4, 8, 16, 32)
     act_space = (nn.ReLU(), nn.LeakyReLU(negative_slope=0.01), None)
-    hidden_channels = channel_space[trial.suggest_int(prefix + '_hiddenchannel', 0, len(channel_space) - 1)]
-    act = act_space[trial.suggest_categorical(prefix + '_act', [k for k in range(len(act_space))])]
+    hidden_channels = channel_space[trial.suggest_int(prefix + "_hiddenchannel", 0, len(channel_space) - 1)]
+    act = act_space[trial.suggest_categorical(prefix + "_act", [k for k in range(len(act_space))])]
     return hidden_channels, act
 
     widths = (
         [in_dim]
         + [
-            width_space[trial.suggest_int(prefix + '_width_' + str(i), 0, len(width_space) - 1)]
+            width_space[trial.suggest_int(prefix + "_width_" + str(i), 0, len(width_space) - 1)]
             for i in range(num_layers - 1)
         ]
         + [out_dim]
     )
-    acts = [act_space[trial.suggest_categorical(prefix + '_acts_' + str(i), (0, 1, 2))] for i in range(num_layers)]
-    norms = [trial.suggest_categorical(prefix + '_norms_' + str(i), norm_space) for i in range(num_layers)]
+    acts = [act_space[trial.suggest_categorical(prefix + "_acts_" + str(i), (0, 1, 2))] for i in range(num_layers)]
+    norms = [trial.suggest_categorical(prefix + "_norms_" + str(i), norm_space) for i in range(num_layers)]
 
     return widths, acts, norms
 
@@ -136,7 +136,7 @@ class SequenceNorm1D(torch.nn.Module):
         elif len(x.size()) == 2:
             indices = (0, 1)  # dont permute.
         else:
-            print(f'Input x of size {x.size()} is not supported!')
+            print(f"Input x of size {x.size()} is not supported!")
 
         x = torch.permute(x, indices)
         x = self.norm(x)
@@ -151,9 +151,9 @@ class Phi(torch.nn.Module):
         self.layers = []
         for i in range(len(acts)):
             self.layers.append(nn.Linear(widths[i], widths[i + 1]))
-            if norms[i] == 'batch':
+            if norms[i] == "batch":
                 self.layers.append(nn.BatchNorm1d(8))
-            elif norms[i] == 'sequence':
+            elif norms[i] == "sequence":
                 self.layers.append(SequenceNorm1D(widths[i + 1]))
             if acts[i] != None:
                 self.layers.append(acts[i])
@@ -170,9 +170,9 @@ class Rho(torch.nn.Module):
         self.layers = []
         for i in range(len(acts)):
             self.layers.append(nn.Linear(widths[i], widths[i + 1]))
-            if norms[i] == 'batch':
+            if norms[i] == "batch":
                 self.layers.append(nn.BatchNorm1d(widths[i + 1]))
-            elif norms[i] == 'sequence':
+            elif norms[i] == "sequence":
                 self.layers.append(SequenceNorm1D(widths[i + 1]))
 
             if acts[i] != None:
@@ -190,9 +190,9 @@ class ConvPhi(torch.nn.Module):
         self.layers = []
         for i in range(len(acts)):
             self.layers.append(nn.Conv1d(widths[i], widths[i + 1], kernel_size=1, stride=1))
-            if norms[i] == 'batch':
+            if norms[i] == "batch":
                 self.layers.append(nn.BatchNorm1d(widths[i + 1]))
-            elif norms[i] == 'sequence':
+            elif norms[i] == "sequence":
                 self.layers.append(SequenceNorm1D(widths[i + 1]))
             if acts[i] != None:
                 self.layers.append(acts[i])
@@ -209,16 +209,16 @@ class QAT_Phi(torch.nn.Module):
         self.quant_inp = qnn.QuantIdentity(bit_width=bit_width, return_quant_tensor=True)
         for i in range(len(acts)):
             linear_layer = qnn.QuantLinear(widths[i], widths[i + 1], bias=True, weight_bit_width=bit_width)
-            self.layers.add_module(f'linear_{i}', linear_layer)
-            if norms[i] == 'batch':
-                self.layers.add_module(f'norm_{i}', nn.BatchNorm1d(8))
+            self.layers.add_module(f"linear_{i}", linear_layer)
+            if norms[i] == "batch":
+                self.layers.add_module(f"norm_{i}", nn.BatchNorm1d(8))
             if acts[i] is not None:
                 act_layer = (
                     acts[i]
                     if isinstance(acts[i], nn.Module)
                     else qnn.QuantReLU(bit_width=bit_width, return_quant_tensor=True)
                 )
-                self.layers.add_module(f'act_{i}', act_layer)
+                self.layers.add_module(f"act_{i}", act_layer)
 
     def forward(self, x):
         for i, layer in enumerate(self.layers):
@@ -234,16 +234,16 @@ class QAT_ConvPhi(torch.nn.Module):
         self.quant_inp = qnn.QuantIdentity(bit_width=bit_width, return_quant_tensor=True)
         for i in range(len(acts)):
             linear_layer = qnn.QuantConv1d(widths[i], widths[i + 1], kernel_size=1, stride=1, weight_bit_width=bit_width)
-            self.layers.add_module(f'linear_{i}', linear_layer)
-            if norms[i] == 'batch':
-                self.layers.add_module(f'norm_{i}', nn.BatchNorm1d(widths[i + 1]))
+            self.layers.add_module(f"linear_{i}", linear_layer)
+            if norms[i] == "batch":
+                self.layers.add_module(f"norm_{i}", nn.BatchNorm1d(widths[i + 1]))
             if acts[i] is not None:
                 act_layer = (
                     acts[i]
                     if isinstance(acts[i], nn.Module)
                     else qnn.QuantReLU(bit_width=bit_width, return_quant_tensor=True)
                 )
-                self.layers.add_module(f'act_{i}', act_layer)
+                self.layers.add_module(f"act_{i}", act_layer)
 
     def forward(self, x):
         for i, layer in enumerate(self.layers):
@@ -259,18 +259,18 @@ class QAT_Rho(torch.nn.Module):
         self.quant_inp = qnn.QuantIdentity(bit_width=bit_width, return_quant_tensor=True)
         for i in range(len(acts)):
             linear_layer = qnn.QuantLinear(widths[i], widths[i + 1], bias=True, weight_bit_width=bit_width)
-            self.layers.add_module(f'linear_{i}', linear_layer)
-            if norms[i] == 'batch':
-                self.layers.add_module(f'norm_{i}', nn.BatchNorm1d(widths[i + 1]))
-            elif norms[i] == 'layer':
-                self.layers.add_module(f'norm_{i}', nn.LayerNorm(widths[i + 1]))
+            self.layers.add_module(f"linear_{i}", linear_layer)
+            if norms[i] == "batch":
+                self.layers.add_module(f"norm_{i}", nn.BatchNorm1d(widths[i + 1]))
+            elif norms[i] == "layer":
+                self.layers.add_module(f"norm_{i}", nn.LayerNorm(widths[i + 1]))
             if acts[i] is not None:
                 act_layer = (
                     acts[i]
                     if isinstance(acts[i], nn.Module)
                     else qnn.QuantReLU(bit_width=bit_width, return_quant_tensor=True)
                 )
-                self.layers.add_module(f'act_{i}', act_layer)
+                self.layers.add_module(f"act_{i}", act_layer)
 
     def forward(self, x):
         for i, layer in enumerate(self.layers):
@@ -329,10 +329,10 @@ class QAT_ConvBlock(nn.Module):
             self.layers.append(conv)
             if kernels[i] == 3:
                 img_size -= 2
-            if norms[i] == 'batch':
+            if norms[i] == "batch":
                 norm_layer = nn.BatchNorm2d(channels[i + 1])
                 self.layers.append(norm_layer)
-            elif norms[i] == 'layer':  # DEPRECATED
+            elif norms[i] == "layer":  # DEPRECATED
                 norm_layer = nn.LayerNorm([channels[i + 1], img_size, img_size])
                 self.layers.append(norm_layer)
             if norms[i] is not None:
@@ -361,18 +361,18 @@ class QAT_MLP(torch.nn.Module):
         self.quant_inp = qnn.QuantIdentity(bit_width=bit_width, return_quant_tensor=True)
         for i in range(len(acts)):
             linear_layer = qnn.QuantLinear(widths[i], widths[i + 1], bias=True, weight_bit_width=bit_width)
-            self.layers.add_module(f'linear_{i}', linear_layer)
-            if norms[i] == 'batch':
-                self.layers.add_module(f'norm_{i}', nn.BatchNorm1d(widths[i + 1]))
-            elif norms[i] == 'layer':
-                self.layers.add_module(f'norm_{i}', nn.LayerNorm(widths[i + 1]))
+            self.layers.add_module(f"linear_{i}", linear_layer)
+            if norms[i] == "batch":
+                self.layers.add_module(f"norm_{i}", nn.BatchNorm1d(widths[i + 1]))
+            elif norms[i] == "layer":
+                self.layers.add_module(f"norm_{i}", nn.LayerNorm(widths[i + 1]))
             if acts[i] is not None:
                 act_layer = (
                     acts[i]
                     if isinstance(acts[i], nn.Module)
                     else qnn.QuantReLU(bit_width=bit_width, return_quant_tensor=True)
                 )
-                self.layers.add_module(f'act_{i}', act_layer)
+                self.layers.add_module(f"act_{i}", act_layer)
 
     def forward(self, x):
         x = self.quant_inp(x)
@@ -416,23 +416,23 @@ class TransformerBlock(torch.nn.Module):
 
         # Sample parameters for LinearAttention, rewrite with optuna samplers.
         trial = {
-            'num_heads': 1,  # pick from [1,2,4,6,8]
-            'norm': nn.BatchNorm1d(input_size[1]),  # pick from [nn.BatchNorm1d(input_size[1]), nn.LayerNorm((4,16,81))]
-            'hidden_dim_scale': 2,  # pick from [1,2,4]
-            'dropout': 0.1,  # float
-            'bias': True,  # [True, False]
-            'num_layers': 1,  # [1,2,3]
+            "num_heads": 1,  # pick from [1,2,4,6,8]
+            "norm": nn.BatchNorm1d(input_size[1]),  # pick from [nn.BatchNorm1d(input_size[1]), nn.LayerNorm((4,16,81))]
+            "hidden_dim_scale": 2,  # pick from [1,2,4]
+            "dropout": 0.1,  # float
+            "bias": True,  # [True, False]
+            "num_layers": 1,  # [1,2,3]
         }
 
         self.layers = [
             nn.TransformerEncoderLayer(
                 d_model=embed_dim,
-                nhead=trial['num_heads'],
-                dim_feedforward=embed_dim * trial['hidden_dim_scale'],
-                dropout=trial['dropout'],
-                bias=trial['bias'],
+                nhead=trial["num_heads"],
+                dim_feedforward=embed_dim * trial["hidden_dim_scale"],
+                dropout=trial["dropout"],
+                bias=trial["bias"],
             )
-            for i in range(trial['num_layers'])
+            for i in range(trial["num_layers"])
         ]
 
     def forward(self, x):
@@ -455,7 +455,7 @@ class SkipBlock(torch.nn.Module):
             lambda x: x,
             nn.ReLU(),
         ]  # pick from [nn.ReLU(), nn.LeakyReLU(), nn.GeLU(), lambda x: x]
-        self.norm = ['batch', 'batch', 'batch']  # pick from ['identity', 'layer', 'batch']
+        self.norm = ["batch", "batch", "batch"]  # pick from ['identity', 'layer', 'batch']
 
         self.layers = []
         for i in range(len(self.kernels)):
@@ -468,9 +468,9 @@ class SkipBlock(torch.nn.Module):
                     padding=(self.kernels[i] - 1) // 2,
                 )
             )
-            if self.norm[i] == 'batch':
+            if self.norm[i] == "batch":
                 self.layers.append(nn.BatchNorm2d(self.channels[i + 1]))
-            elif self.norm[i] == 'layer':
+            elif self.norm[i] == "layer":
                 self.layers.append(nn.LayerNorm(self.input_size))
 
             self.layers.append(self.act[i])

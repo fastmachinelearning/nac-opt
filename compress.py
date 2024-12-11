@@ -21,9 +21,9 @@ def get_parameters_to_prune(model, bias=False):
     parameters_to_prune = []
     for name, module in model.named_modules():
         if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.Linear):
-            parameters_to_prune.append((module, 'weight'))
+            parameters_to_prune.append((module, "weight"))
             if bias and module.bias != None:
-                parameters_to_prune.append((module, 'bias'))
+                parameters_to_prune.append((module, "bias"))
 
     return tuple(parameters_to_prune)
 
@@ -42,15 +42,15 @@ def main():
     b = 8  # Bit width
     Blocks = nn.Sequential(
         QAT_ConvBlock(
-            [32, 4, 32], [1, 1], [nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)], [None, 'batch'], img_size=9, bit_width=b
+            [32, 4, 32], [1, 1], [nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)], [None, "batch"], img_size=9, bit_width=b
         ),
-        QAT_ConvBlock([32, 4, 32], [1, 3], [nn.GELU(), nn.GELU()], ['batch', 'layer'], img_size=9, bit_width=b),
-        QAT_ConvBlock([32, 8, 64], [3, 3], [nn.GELU(), None], ['layer', None], img_size=7, bit_width=b),
+        QAT_ConvBlock([32, 4, 32], [1, 3], [nn.GELU(), nn.GELU()], ["batch", "layer"], img_size=9, bit_width=b),
+        QAT_ConvBlock([32, 8, 64], [3, 3], [nn.GELU(), None], ["layer", None], img_size=7, bit_width=b),
     )
     mlp = QAT_MLP(
         widths=[576, 8, 4, 4, 2],
         acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None],
-        norms=['layer', None, 'layer', None],
+        norms=["layer", None, "layer", None],
         bit_width=b,
     )
     model = QAT_CandidateArchitecture(Blocks, mlp, 32).to(device)
@@ -75,15 +75,15 @@ def main():
         prune.global_unstructured(get_parameters_to_prune(model), pruning_method=prune.L1Unstructured, amount=0.2)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     batch_size = 256
     IMG_SIZE = 11
     aug = 1
     num_epochs = 300
-    device = torch.device('cuda:3')
+    device = torch.device("cuda:3")
     print(device)
     train_loader, val_loader, test_loader = setup_data_loaders(
         batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2
     )
-    print('Loaded Dataset...')
+    print("Loaded Dataset...")
     main()

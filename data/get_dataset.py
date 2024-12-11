@@ -1,8 +1,8 @@
 import os
 import tarfile
 
-tar_gz_path = './data/dataset.tar.gz'
-target_directory = './data/'
+tar_gz_path = "./data/dataset.tar.gz"
+target_directory = "./data/"
 
 
 # Function to extract the tar.gz file

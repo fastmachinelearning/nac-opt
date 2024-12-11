@@ -11,14 +11,14 @@ from models.train_utils import *
 from utils.bops import *
 
 # Replace 'your_file.txt' with the path to your text file
-txt_file = 'NAC_Compress.txt'
+txt_file = "NAC_Compress.txt"
 
 Blocks = nn.Sequential(
-    ConvBlock([32, 4, 32], [1, 1], [nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)], [None, 'batch'], img_size=9),
-    ConvBlock([32, 4, 32], [1, 3], [nn.GELU(), nn.GELU()], ['batch', 'layer'], img_size=9),
-    ConvBlock([32, 8, 64], [3, 3], [nn.GELU(), None], ['layer', None], img_size=7),
+    ConvBlock([32, 4, 32], [1, 1], [nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)], [None, "batch"], img_size=9),
+    ConvBlock([32, 4, 32], [1, 3], [nn.GELU(), nn.GELU()], ["batch", "layer"], img_size=9),
+    ConvBlock([32, 8, 64], [3, 3], [nn.GELU(), None], ["layer", None], img_size=7),
 )
-mlp = MLP(widths=[576, 8, 4, 4, 2], acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None], norms=['layer', None, 'layer', None])
+mlp = MLP(widths=[576, 8, 4, 4, 2], acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None], norms=["layer", None, "layer", None])
 model = CandidateArchitecture(Blocks, mlp, 32)
 
 bops_list = []
@@ -28,20 +28,20 @@ bits = []
 with open(txt_file) as f:
     lines = f.readlines()
     for line in lines:
-        arr_line = line.split(' ')
+        arr_line = line.split(" ")
         bit_width = float(arr_line[2][0])
         prune_iter = float(arr_line[7][:-1])
         dist = float(arr_line[11].replace(",", ""))
 
         conv_sparsity = float(arr_line[20][8:-1])
-        block1_sparsity = {'layers[0]': float(arr_line[22][7:-1]), 'layers[2]': float(arr_line[24][7:-1])}
-        block2_sparsity = {'layers[0]': float(arr_line[26][7:-1]), 'layers[2]': float(arr_line[28][7:-1])}
-        block3_sparsity = {'layers[0]': float(arr_line[30][7:-1]), 'layers[2]': float(arr_line[32][7:-1])}
+        block1_sparsity = {"layers[0]": float(arr_line[22][7:-1]), "layers[2]": float(arr_line[24][7:-1])}
+        block2_sparsity = {"layers[0]": float(arr_line[26][7:-1]), "layers[2]": float(arr_line[28][7:-1])}
+        block3_sparsity = {"layers[0]": float(arr_line[30][7:-1]), "layers[2]": float(arr_line[32][7:-1])}
         mlp_sparsity = {
-            'layers[0]': float(arr_line[34][7:-1]),
-            'layers[3]': float(arr_line[36][7:-1]),
-            'layers[5]': float(arr_line[38][7:-1]),
-            'layers[8]': float(arr_line[40][7:-1]),
+            "layers[0]": float(arr_line[34][7:-1]),
+            "layers[3]": float(arr_line[36][7:-1]),
+            "layers[5]": float(arr_line[38][7:-1]),
+            "layers[8]": float(arr_line[40][7:-1]),
         }
 
         conv_bops = calculate_convblock_bops(

@@ -14,14 +14,14 @@ x = torch.randn((256, 1, 11, 11))
 batch_size = 256
 
 # High performing model found by search, Mean Distance: 0.203, BOPs: 17.3 Million, Param Count: 13922
-Blocks = nn.Sequential(ConvBlock([16, 4, 2], [1, 3], [nn.GELU(), nn.GELU()], [None, 'batch'], img_size=9))
-mlp = MLP(widths=[98, 64, 8, 4, 2], acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None], norms=['layer', 'batch', 'layer', None])
+Blocks = nn.Sequential(ConvBlock([16, 4, 2], [1, 3], [nn.GELU(), nn.GELU()], [None, "batch"], img_size=9))
+mlp = MLP(widths=[98, 64, 8, 4, 2], acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None], norms=["layer", "batch", "layer", None])
 model = CandidateArchitecture(Blocks, mlp, 16)
 y = model(x)
 conv_bops = calculate_convblock_bops(Blocks[0], sparsity_dict=None, weight_bit_width=32, activation_bit_width=32)
 mlp_bops = calculate_mlpblock_bops(mlp, sparsity_dict=None, weight_bit_width=32, activation_bit_width=32)
 total_bops = conv_bops + mlp_bops
-print('Example Model w/ BOPs = ', total_bops, ', Conv Bops = ', conv_bops, ', MLP Bops =', mlp_bops)
+print("Example Model w/ BOPs = ", total_bops, ", Conv Bops = ", conv_bops, ", MLP Bops =", mlp_bops)
 print(model)
 
 # OpenHLS Model
@@ -37,13 +37,13 @@ conv_bops = calculate_convblock_bops(Blocks[1], sparsity_dict=None, weight_bit_w
 mlp_bops = calculate_mlpblock_bops(mlp, sparsity_dict=None, weight_bit_width=32, activation_bit_width=32)
 total_bops = attn_bops + conv_bops + mlp_bops
 print(
-    'OpenHLS Model w/ BOPs = ',
+    "OpenHLS Model w/ BOPs = ",
     total_bops,
-    ', Attn Bops = ',
+    ", Attn Bops = ",
     attn_bops,
-    ', Conv Bops = ',
+    ", Conv Bops = ",
     conv_bops,
-    ', MLP Bops =',
+    ", MLP Bops =",
     mlp_bops,
 )
 print(model)
@@ -74,13 +74,13 @@ conv_bops = calculate_convblock_bops(Blocks[1], sparsity_dict=None, weight_bit_w
 mlp_bops = calculate_mlpblock_bops(mlp, sparsity_dict=None, weight_bit_width=32, activation_bit_width=32)
 total_bops = attn_bops + conv_bops + mlp_bops
 print(
-    'BraggNN Model w/ BOPs = ',
+    "BraggNN Model w/ BOPs = ",
     total_bops,
-    ', Attn Bops = ',
+    ", Attn Bops = ",
     attn_bops,
-    ', Conv Bops = ',
+    ", Conv Bops = ",
     conv_bops,
-    ', MLP Bops =',
+    ", MLP Bops =",
     mlp_bops,
 )
 print(model)
@@ -90,8 +90,8 @@ print(model)
 # First initialize a normal model to calculate BOPs, then input the bits you will quantize to
 bit_width = 8
 
-Blocks = nn.Sequential(ConvBlock([16, 4, 2], [1, 3], [nn.GELU(), nn.GELU()], [None, 'batch'], img_size=9))
-mlp = MLP(widths=[98, 64, 8, 4, 2], acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None], norms=['layer', 'batch', 'layer', None])
+Blocks = nn.Sequential(ConvBlock([16, 4, 2], [1, 3], [nn.GELU(), nn.GELU()], [None, "batch"], img_size=9))
+mlp = MLP(widths=[98, 64, 8, 4, 2], acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None], norms=["layer", "batch", "layer", None])
 model = CandidateArchitecture(Blocks, mlp, 16)
 
 conv_bops = calculate_convblock_bops(
@@ -99,12 +99,12 @@ conv_bops = calculate_convblock_bops(
 )
 mlp_bops = calculate_mlpblock_bops(mlp, sparsity_dict=None, weight_bit_width=bit_width, activation_bit_width=bit_width)
 total_bops = conv_bops + mlp_bops
-print('Quantized Model w/ BOPs = ', total_bops, ', Conv Bops = ', conv_bops, ', MLP Bops =', mlp_bops)
+print("Quantized Model w/ BOPs = ", total_bops, ", Conv Bops = ", conv_bops, ", MLP Bops =", mlp_bops)
 
 # Now, initialize the quantized model
-Blocks = nn.Sequential(QAT_ConvBlock([16, 4, 2], [1, 3], [nn.GELU(), nn.GELU()], [None, 'batch'], img_size=9))
+Blocks = nn.Sequential(QAT_ConvBlock([16, 4, 2], [1, 3], [nn.GELU(), nn.GELU()], [None, "batch"], img_size=9))
 mlp = QAT_MLP(
-    widths=[98, 64, 8, 4, 2], acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None], norms=['layer', 'batch', 'layer', None]
+    widths=[98, 64, 8, 4, 2], acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None], norms=["layer", "batch", "layer", None]
 )
 model = QAT_CandidateArchitecture(Blocks, mlp, 16, bit_width=bit_width)
 y = model(x)
