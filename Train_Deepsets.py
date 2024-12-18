@@ -1,19 +1,21 @@
-import torch
-from torch.utils.data import DataLoader
-import torch.nn as nn
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 import brevitas.nn as qnn
-from brevitas.quant import IntBias
 import numpy as np
+import torch
+import torch.nn as nn
+from brevitas.quant import IntBias
+from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.utils.data import DataLoader
+
 from data.DeepsetsDataset import setup_data_loaders
 
 torch.manual_seed(42)
 np.random.seed(42)
-device = torch.device('cpu') #torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu")  # torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 class DeepSetsInv(nn.Module):
     def __init__(self, input_size, nnodes_phi: int = 32, nnodes_rho: int = 16, activ: str = "relu", weight_bit_width=8):
-        super(DeepSetsInv, self).__init__()
+        super().__init__()
         self.nclasses = 5
         self.phi = nn.Sequential(
             qnn.QuantLinear(input_size, nnodes_phi, bias=True, weight_bit_width=weight_bit_width),
@@ -38,7 +40,7 @@ class DeepSetsInv(nn.Module):
             return qnn.QuantTanh(bit_width=8)
         else:
             raise ValueError(f"Unsupported activation: {activ}")
-    
+
     def forward(self, inputs):
         phi_output = self.phi(inputs)
         # print("phi_output dtype:", phi_output.dtype)
@@ -57,16 +59,17 @@ def test_model(model, test_loader):
         for test_data, test_targets in test_loader:
             test_data = test_data.to(device).float()
             test_targets = test_targets.to(device).float()
-            
+
             outputs = model(test_data)
             _, predicted = torch.max(outputs, 1)
             true_labels = torch.argmax(test_targets, 1)  # Get the true class labels
-            
+
             test_total += true_labels.size(0)
             test_correct += (predicted == true_labels).sum().item()
-        
+
         test_accuracy = test_correct / test_total
         print(f"Test Accuracy: {test_accuracy:.4f}")
+
 
 if __name__ == "__main__":
 
@@ -77,14 +80,16 @@ if __name__ == "__main__":
 
     # Define the loss function and optimizer
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0032) #lr=0.0032)
-    lr_scheduler = ReduceLROnPlateau(optimizer, mode='max', factor=0.1, patience=3)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0032)  # lr=0.0032)
+    lr_scheduler = ReduceLROnPlateau(optimizer, mode="max", factor=0.1, patience=3)
 
     # Set up data loaders
-    base_file_name = 'jet_images_c8_minpt2_ptetaphi_robust_fast'
+    base_file_name = "jet_images_c8_minpt2_ptetaphi_robust_fast"
     batch_size = 1024
     num_workers = 8
-    train_loader, val_loader, test_loader = setup_data_loaders(base_file_name, batch_size, num_workers, prefetch_factor=True, pin_memory=True)
+    train_loader, val_loader, test_loader = setup_data_loaders(
+        base_file_name, batch_size, num_workers, prefetch_factor=True, pin_memory=True
+    )
 
     num_epochs = 100
     model.to(device)
@@ -100,19 +105,19 @@ if __name__ == "__main__":
         model.train()
         print(len(train_loader))
         for batch_data, batch_targets in train_loader:
-            
+
             batch_data = batch_data.to(device).float()
             batch_targets = batch_targets.to(device).float()  # Convert targets to long tensor
-            
+
             # Forward pass
             outputs = model(batch_data)
             loss = criterion(outputs, batch_targets)
             lossval += loss.item()
-            
+
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        
+
         model.eval()
         with torch.no_grad():
             val_loss = 0.0
@@ -122,17 +127,17 @@ if __name__ == "__main__":
                 val_data = val_data.to(device).float()
                 # val_targets = val_targets.to(device).long()  # Convert targets to long tensor
                 val_targets = val_targets.to(device).float()  # Convert targets to long tensor
-                
+
                 outputs = model(val_data)
                 loss = criterion(outputs, val_targets)
                 val_loss += loss.item()
-                
+
                 _, predicted = torch.max(outputs, 1)
                 true_labels = torch.argmax(val_targets, 1)  # Get the true class labels
 
                 val_total += val_targets.size(0)
                 val_correct += (predicted == true_labels).sum().item()
-            
+
             val_accuracy = val_correct / val_total
             if val_accuracy > best_val_accuracy:
                 best_val_accuracy = val_accuracy
@@ -142,10 +147,12 @@ if __name__ == "__main__":
                 if patience_counter > patience:
                     print(f"Early stopping: Validation accuracy has not increased in {patience} epochs")
                     break
-            
+
             # Update the learning rate based on validation accuracy
             lr_scheduler.step(val_accuracy)
-        
-        print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {lossval/len(train_loader):.4f}, Val Loss: {val_loss/len(val_loader):.4f}, Val Accuracy: {val_accuracy:.4f}")
+
+        print(
+            f"Epoch {epoch+1}/{num_epochs}, Train Loss: {lossval/len(train_loader):.4f}, Val Loss: {val_loss/len(val_loader):.4f}, Val Accuracy: {val_accuracy:.4f}"
+        )
 
     test_model(model, test_loader)

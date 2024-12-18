@@ -1,11 +1,13 @@
-import torch 
+import torch
 import torch.nn as nn
-from NAC import NAC, get_parameters_to_prune
 import torch.nn.utils.prune as prune
+from NAC import NAC, get_parameters_to_prune
+
 from data.BraggnnDataset import setup_data_loaders
 from utils.utils import *
 
-device = torch.device('cuda:4')
+device = torch.device("cuda:4")
+
 
 class NAC(torch.nn.Module):
     def __init__(self):
@@ -20,24 +22,24 @@ class NAC(torch.nn.Module):
         self.norm2 = nn.BatchNorm2d(4)
         self.act3 = nn.LeakyReLU()
         self.conv5 = nn.Conv2d(4, 32, kernel_size=3, stride=1)
-        self.norm3 = nn.BatchNorm2d(32)#nn.LayerNorm((32, 7, 7))
+        self.norm3 = nn.BatchNorm2d(32)  # nn.LayerNorm((32, 7, 7))
         self.act4 = nn.LeakyReLU()
         self.conv6 = nn.Conv2d(32, 8, kernel_size=3, stride=1)
-        self.norm4 = nn.BatchNorm2d(8)#nn.LayerNorm((8, 5, 5))
+        self.norm4 = nn.BatchNorm2d(8)  # nn.LayerNorm((8, 5, 5))
         self.act5 = nn.LeakyReLU()
         self.conv7 = nn.Conv2d(8, 64, kernel_size=3, stride=1)
         self.flatten = nn.Flatten(1)
         self.fc1 = nn.Linear(576, 8)
-        self.norm5 = nn.BatchNorm1d(8)#nn.LayerNorm((8))
+        self.norm5 = nn.BatchNorm1d(8)  # nn.LayerNorm((8))
         self.act6 = nn.ReLU()
         self.fc2 = nn.Linear(8, 4)
         self.act7 = nn.LeakyReLU()
-        self.fc3 = nn.Linear(4,4)
-        self.norm6 = nn.BatchNorm1d(4)#nn.LayerNorm((4))
+        self.fc3 = nn.Linear(4, 4)
+        self.norm6 = nn.BatchNorm1d(4)  # nn.LayerNorm((4))
         self.act8 = nn.LeakyReLU()
-        self.fc4 = nn.Linear(4,2)
-        
-    def forward(self,x):
+        self.fc4 = nn.Linear(4, 2)
+
+    def forward(self, x):
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.act1(x)
@@ -66,20 +68,23 @@ class NAC(torch.nn.Module):
         x = self.fc4(x)
         return x
 
-train_loader, val_loader, test_loader = setup_data_loaders(256, IMG_SIZE = 11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2)
+
+train_loader, val_loader, test_loader = setup_data_loaders(
+    256, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2
+)
 model = NAC()
-prune.global_unstructured(get_parameters_to_prune(model, bias = False), pruning_method=prune.L1Unstructured,amount=0)
-model.load_state_dict(torch.load('/home/ubuntu/luke/Morph/models/d0.pth'))
-prune.global_unstructured(get_parameters_to_prune(model, bias = False), pruning_method=prune.L1Unstructured,amount=0)
-for module, name in get_parameters_to_prune(model, bias = False):
+prune.global_unstructured(get_parameters_to_prune(model, bias=False), pruning_method=prune.L1Unstructured, amount=0)
+model.load_state_dict(torch.load("/home/ubuntu/luke/Morph/models/d0.pth"))
+prune.global_unstructured(get_parameters_to_prune(model, bias=False), pruning_method=prune.L1Unstructured, amount=0)
+for module, name in get_parameters_to_prune(model, bias=False):
     prune.remove(module, name)
 model.to(device)
-    
+
 val_mean_dist = get_mean_dist(model, val_loader, device, psz=11)
 print(val_mean_dist)
 test_mean_dist = get_mean_dist(model, test_loader, device, psz=11)
 print(test_mean_dist)
-torch.save(model.state_dict(), '/home/ubuntu/luke/Morph/models/removed_iter0.pth')
+torch.save(model.state_dict(), "/home/ubuntu/luke/Morph/models/removed_iter0.pth")
 
 """
 model = model.to('cpu')
