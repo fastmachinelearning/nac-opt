@@ -13,7 +13,11 @@ from tqdm import tqdm
 from data import BraggnnDataset
 from data.BraggnnDataset import setup_data_loaders
 from models.blocks import *
-from models.train_utils import *
+# from models.train_utils import *
+
+from utils.processor import * # Added
+
+
 
 
 # Helper function for pruning
@@ -60,19 +64,18 @@ def main():
     optimizer = torch.optim.RMSprop(model.parameters(), lr=0.0015, weight_decay=2.2e-9)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=300)
 
-    for prune_iter in range(0, 20):
+    for prune_iter in range(0,20):
 
-        validation_loss = train_model(model, optimizer, scheduler, criterion, train_loader, val_loader, device, num_epochs)
-        val_mean_dist = get_performance(model, val_loader, device, psz=11)
-        test_mean_dist = get_performance(model, test_loader, device, psz=11)
 
+        validation_loss = train(model, optimizer, scheduler, criterion, train_loader, val_loader, device, num_epochs)
+
+        val_mean_dist = get_mean_dist(model, val_loader, device, psz=11)
+        test_mean_dist = get_mean_dist(model, test_loader, device, psz=11)
         sparsities = get_sparsities(model)
-        with open("./NAC_Compress.txt", "a") as file:
-            file.write(
-                f"Trial 164 {b}-Bit QAT Model Prune Iter: {prune_iter}, Test Mean Dist: {test_mean_dist}, Val Mean Dist: {val_mean_dist}, Val Loss: {validation_loss}, Sparsities: {sparsities}\n"
-            )
-
-        prune.global_unstructured(get_parameters_to_prune(model), pruning_method=prune.L1Unstructured, amount=0.2)
+        with open("./NAC_Bragg_Compress.txt", "a") as file:
+            file.write(f"Trial 608 {b}-Bit QAT Large Bragg Model Prune Iter: {prune_iter}, Test Mean Dist: {test_mean_dist}, Val Mean Dist: {val_mean_dist}, Val Loss: {validation_loss}, Sparsities: {sparsities}\n")
+        
+        prune.global_unstructured(get_parameters_to_prune(model), pruning_method=prune.L1Unstructured,amount=.2)
 
 
 if __name__ == "__main__":

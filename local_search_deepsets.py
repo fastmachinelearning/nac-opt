@@ -65,12 +65,6 @@ tiny_rho = QAT_Rho(
 
 tiny_model = DeepSetsArchitecture(tiny_phi, tiny_rho, aggregator)
 
-adjusted_tiny_rho = QAT_Rho(
-    widths=[16, 8, 4, 5], acts=[nn.ReLU(), nn.ReLU(), nn.ReLU()], norms=["batch", None, "batch"], bit_width=bit_width
-)
-
-adjusted_tiny_model = DeepSetsArchitecture(tiny_phi, adjusted_tiny_rho, aggregator)
-
 
 def get_parameters_to_prune(model, bias=False):
     parameters_to_prune = []
@@ -93,11 +87,12 @@ def get_sparsities(model):
 
 
 if __name__ == "__main__":
-    # #TODO: Change to fit anyones device
     if torch.cuda.is_available():
-        device = torch.device("cuda:0")
+        device = "cuda"
     else:
-        device = torch.device("cpu")
+        device = "cpu"
+    device = torch.device(device)
+    
     batch_size = 4096
     num_workers = 8
 

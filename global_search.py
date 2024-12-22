@@ -1,8 +1,7 @@
-import optuna
-
 # from data.BraggnnDataset import setup_data_loaders
 import torch
 import torch.nn as nn
+import optuna
 
 from data import BraggnnDataset, DeepsetsDataset
 from examples.hyperparam_examples import BraggNN_params, Example1_params, Example2_params, Example3_params, OpenHLS_params
