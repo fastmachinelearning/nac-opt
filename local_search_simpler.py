@@ -5,6 +5,9 @@ from typing import List, Tuple, Union, Callable
 from dataclasses import dataclass
 from torch.utils.data import DataLoader
 
+from models.blocks import *
+
+
 @dataclass
 class SearchConfig:
     """Configuration for local search parameters"""
@@ -70,9 +73,12 @@ class LocalSearch:
         )
 
         for prune_iter in range(self.config.num_prune_iterations):
+            
             # Evaluate model
             metrics = evaluate_fn(model, train_loader, val_loader, test_loader, self.config.device)
             sparsities = self.get_sparsities(model)
+
+            print(f"Pruning Iter {prune_iter + 1}/{self.config.num_prune_iterations}")
             
             # Log results
             with open(self.config.log_file, "a") as file:
@@ -109,6 +115,7 @@ class LocalSearch:
             extra_info: Additional information to log
         """
         for model, model_name in models:
+            print(f"Searching {model_name}...")
             self.search_single_model(
                 model=model,
                 train_loader=train_loader,
@@ -132,145 +139,172 @@ class LocalSearch:
 #         "val_loss": validation_loss
 #     }
 
-def evaluate_deepsets(model, train_loader, val_loader, test_loader, device):
-    """Evaluatio function for DeepSets models"""
-    val_accuracy, inference_time, validation_loss, param_count = evaluate_Deepsets(
-        model, train_loader, val_loader, device, num_epochs=100
-    )
-    test_accuracy = get_acc(model, test_loader, device)
-    return {
-        "val_accuracy": val_accuracy,
-        "test_accuracy": test_accuracy,
-        "val_loss": validation_loss,
-        "inference_time": inference_time,
-        "param_count": param_count
-    }
+# def evaluate_deepsets_local(model, train_loader, val_loader, test_loader, device):
+#     """Evaluatio function for DeepSets models"""
+#     val_accuracy, inference_time, validation_loss, param_count = evaluate_Deepsets(
+#         model, train_loader, val_loader, device, num_epochs=100
+#     )
+#     test_accuracy = get_acc(model, test_loader, device)
+#     return {
+#         "val_accuracy": val_accuracy,
+#         "test_accuracy": test_accuracy,
+#         "val_loss": validation_loss,
+#         "inference_time": inference_time,
+#         "param_count": param_count
+#     }
 
 
 
 # from data import DeepsetsDataset
-from models.blocks import *
-from utils.processor import evaluate_Deepsets, get_acc
-from data.DeepsetsDataset import *
+# from utils.processor import evaluate_Deepsets, get_acc
+
 
 
 # Example usage for DeepSets
-if __name__ == "__main__":
-    # DeepSets Dataset Configuration
-    batch_size = 4096
-    num_workers = 8
-    base_file_name = "jet_images_c8_minpt2_ptetaphi_robust_fast"
-
-    # Load datasets
-    train_loader, val_loader, test_loader = setup_data_loaders(
-        base_file_name,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        prefetch_factor=2,
-        pin_memory=True
-    )
-    print("Loaded Dataset...")
-
-    # Search Configuration
-    config = SearchConfig(
-        num_prune_iterations=20,
-        prune_amount=0.2,
-        include_bias=False,
-        log_file="deepsets_search_results.txt",
-        device="cuda" if torch.cuda.is_available() else "cpu"
-    )
-    
-    # Initialize search
-    local_search = LocalSearch(config)
-
-    # Define models (using QAT models as example)
-    bit_width = 32
-    aggregator = lambda x: torch.mean(x, dim=2)
-
-    # Large model
-    large_phi = QAT_ConvPhi(
-        widths=[3, 32, 32], 
-        acts=[nn.ReLU(), nn.ReLU()], 
-        norms=["batch", "batch"], 
-        bit_width=bit_width
-    )
-    large_rho = QAT_Rho(
-        widths=[32, 32, 64, 5],
-        acts=[nn.ReLU(), nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)],
-        norms=["batch", None, "batch"],
-        bit_width=bit_width
-    )
-    large_model = DeepSetsArchitecture(large_phi, large_rho, aggregator)
-
-    # Small model
-    small_phi = QAT_ConvPhi(
-        widths=[3, 8, 8], 
-        acts=[nn.LeakyReLU(negative_slope=0.01), nn.ReLU()], 
-        norms=["batch", None], 
-        bit_width=bit_width
-    )
-    small_rho = QAT_Rho(
-        widths=[8, 16, 16, 5],
-        acts=[nn.LeakyReLU(negative_slope=0.01), nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)],
-        norms=["batch", "batch", None],
-        bit_width=bit_width
-    )
-    small_model = DeepSetsArchitecture(small_phi, small_rho, aggregator)
-
-    # Define models to search
-    deepsets_models = [
-        (large_model, "Large"),
-        (small_model, "Small")
-    ]
-
-    # Run search on multiple models
-    local_search.search_multiple_models(
-        models=deepsets_models,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        test_loader=test_loader,
-        evaluate_fn=evaluate_deepsets,
-        extra_info=f"{bit_width}-Bit QAT"
-    )
-
-
-# # Example usage
+# from utils.processor import evaluate_deepsets
+# from data.DeepsetsDataset import *
 # if __name__ == "__main__":
-#     # Configuration
+# def old_main():
+#     # DeepSets Dataset Configuration
+#     batch_size = 4096
+#     num_workers = 8
+#     base_file_name = "jet_images_c8_minpt2_ptetaphi_robust_fast"
+
+#     # Load datasets
+#     train_loader, val_loader, test_loader = setup_data_loaders(
+#         base_file_name,
+#         batch_size=batch_size,
+#         num_workers=num_workers,
+#         prefetch_factor=2,
+#         pin_memory=True
+#     )
+#     print("Loaded Dataset...")
+
+#     # Search Configuration
 #     config = SearchConfig(
 #         num_prune_iterations=20,
 #         prune_amount=0.2,
 #         include_bias=False,
-#         log_file="search_results.txt"
+#         log_file="Results/deepsets_search_results.txt",
+#         device="cuda" if torch.cuda.is_available() else "cpu"
 #     )
     
 #     # Initialize search
 #     local_search = LocalSearch(config)
-    
-#     # # BraggNN example (single model)
-#     # bragg_model = QAT_CandidateArchitecture(Blocks, mlp, 32)
-#     # local_search.search_single_model(
-#     #     model=bragg_model,
-#     #     train_loader=bragg_train_loader,
-#     #     val_loader=bragg_val_loader,
-#     #     test_loader=bragg_test_loader,
-#     #     evaluate_fn=evaluate_braggnn,
-#     #     model_name="BraggNN",
-#     #     extra_info="8-Bit QAT"
-#     # )
-    
-#     # DeepSets example (multiple models)
+
+#     # Define models (using QAT models as example)
+#     bit_width = 32
+#     aggregator = lambda x: torch.mean(x, dim=2)
+
+#     # Large model
+#     large_phi = QAT_ConvPhi(
+#         widths=[3, 32, 32], 
+#         acts=[nn.ReLU(), nn.ReLU()], 
+#         norms=["batch", "batch"], 
+#         bit_width=bit_width
+#     )
+#     large_rho = QAT_Rho(
+#         widths=[32, 32, 64, 5],
+#         acts=[nn.ReLU(), nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)],
+#         norms=["batch", None, "batch"],
+#         bit_width=bit_width
+#     )
+#     large_model = DeepSetsArchitecture(large_phi, large_rho, aggregator)
+
+#     # Small model
+#     small_phi = QAT_ConvPhi(
+#         widths=[3, 8, 8], 
+#         acts=[nn.LeakyReLU(negative_slope=0.01), nn.ReLU()], 
+#         norms=["batch", None], 
+#         bit_width=bit_width
+#     )
+#     small_rho = QAT_Rho(
+#         widths=[8, 16, 16, 5],
+#         acts=[nn.LeakyReLU(negative_slope=0.01), nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)],
+#         norms=["batch", "batch", None],
+#         bit_width=bit_width
+#     )
+#     small_model = DeepSetsArchitecture(small_phi, small_rho, aggregator)
+
+#     # Define models to search
 #     deepsets_models = [
 #         (large_model, "Large"),
-#         (medium_model, "Medium"),
-#         (small_model, "Small"),
-#         (tiny_model, "Tiny")
+#         (small_model, "Small")
 #     ]
+
+#     # Run search on multiple models
 #     local_search.search_multiple_models(
 #         models=deepsets_models,
-#         train_loader=deepsets_train_loader,
-#         val_loader=deepsets_val_loader,
-#         test_loader=deepsets_test_loader,
+#         train_loader=train_loader,
+#         val_loader=val_loader,
+#         test_loader=test_loader,
 #         evaluate_fn=evaluate_deepsets,
-#         extra_info="32-Bit QAT"
+#         extra_info=f"{bit_width}-Bit QAT"
 #     )
+
+
+#Example Usage for BraggNN
+from data.BraggnnDataset import *
+from utils.processor import evaluate_braggnn
+from data.BraggnnDataset import setup_data_loaders
+
+if __name__ == "__main__":
+    # BraggNN Dataset Configuration
+    batch_size = 4096
+    num_workers = 4
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    
+
+    # Load datasets
+    train_loader, val_loader, test_loader = setup_data_loaders(
+        batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2, data_folder= "/home/users/ddemler/dima_stuff/Morph/data/"
+    )
+    print("Loaded Dataset...")
+
+    config = SearchConfig(
+        num_prune_iterations=20,
+        prune_amount=0.2,
+        include_bias=False,
+        log_file="Results/bragg_search_results.txt",
+        device=device, 
+    )
+
+    # Initialize search
+    local_search = LocalSearch(config)
+
+    # NAC Model
+    b = 8  # Bit width
+    Blocks = nn.Sequential(
+        QAT_ConvBlock(
+            [32, 4, 32], [1, 1], [nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)], [None, "batch"], img_size=9, bit_width=b
+        ),
+        QAT_ConvBlock([32, 4, 32], [1, 3], [nn.GELU(), nn.GELU()], ["batch", "layer"], img_size=9, bit_width=b),
+        QAT_ConvBlock([32, 8, 64], [3, 3], [nn.GELU(), None], ["layer", None], img_size=7, bit_width=b),
+    )
+
+    mlp = QAT_MLP(
+        widths=[576, 8, 4, 4, 2],
+        acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None],
+        norms=["layer", None, "layer", None],
+        bit_width=b,
+    )
+
+    braggnn_model = QAT_CandidateArchitecture(Blocks, mlp, 32).to(device)
+
+    #initialize pruning
+    local_search.search_single_model(
+        model=braggnn_model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        test_loader=test_loader,
+        evaluate_fn=evaluate_braggnn,
+        model_name="BraggNN",
+        extra_info=f"{b}-Bit QAT"
+    )
+
+
+
+
+
+

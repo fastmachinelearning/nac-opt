@@ -362,7 +362,6 @@ class QAT_MLP(torch.nn.Module):
     def forward(self, x):
         x = self.quant_inp(x)
         for i, layer in enumerate(self.layers):
-            print(i)
             x = self.quant_inp(x)
             x = layer(x)
         return x
