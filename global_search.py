@@ -129,11 +129,12 @@ def Deepsets_objective(trial):
 
 
 if __name__ == "__main__":
-    device = torch.device("cuda:0")  # TODO: Change to fit anyones device
+    device = torch.device("cuda:0")
     batch_size = 4096  # 1024
     num_workers = 8
 
-    # train_loader, val_loader, test_loader = BraggNNDataset.setup_data_loaders(batch_size, IMG_SIZE = 11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2)
+    # train_loader, val_loader, test_loader = BraggNNDataset.setup_data_loaders(
+    #     batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2, data_folder= "data/")
     train_loader, val_loader, test_loader = DeepsetsDataset.setup_data_loaders(
         "jet_images_c8_minpt2_ptetaphi_robust_fast", batch_size, num_workers, prefetch_factor=True, pin_memory=True
     )
