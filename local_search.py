@@ -214,64 +214,66 @@ if __name__ == "__main__":
 
 
 #Example Usage for BraggNN
-# from data.BraggnnDataset import *
-# from utils.processor import evaluate_braggnn
-# from data.BraggnnDataset import setup_data_loaders
+"""
+from data.BraggnnDataset import *
+from utils.processor import evaluate_braggnn
+from data.BraggnnDataset import setup_data_loaders
 
-# if __name__ == "__main__":
-#     # BraggNN Dataset Configuration
-#     batch_size = 4096
-#     num_workers = 4
-#     device = "cuda" if torch.cuda.is_available() else "cpu"
+if __name__ == "__main__":
+    # BraggNN Dataset Configuration
+    batch_size = 4096
+    num_workers = 4
+    device = "cuda" if torch.cuda.is_available() else "cpu"
 
     
 
-#     # Load datasets
-#     train_loader, val_loader, test_loader = setup_data_loaders(
-#         batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2, data_folder= "/home/users/ddemler/dima_stuff/Morph/data/"
-#     )
-#     print("Loaded Dataset...")
+    # Load datasets
+    train_loader, val_loader, test_loader = setup_data_loaders(
+        batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2, data_folder= "/home/users/ddemler/dima_stuff/Morph/data/"
+    )
+    print("Loaded Dataset...")
 
-#     config = SearchConfig(
-#         num_prune_iterations=20,
-#         prune_amount=0.2,
-#         include_bias=False,
-#         log_file="Results/bragg_search_results.txt",
-#         device=device, 
-#     )
+    config = SearchConfig(
+        num_prune_iterations=20,
+        prune_amount=0.2,
+        include_bias=False,
+        log_file="Results/bragg_search_results.txt",
+        device=device, 
+    )
 
-#     # Initialize search
-#     local_search = LocalSearch(config)
+    # Initialize search
+    local_search = LocalSearch(config)
 
-#     # NAC Model
-#     b = 8  # Bit width
-#     Blocks = nn.Sequential(
-#         QAT_ConvBlock(
-#             [32, 4, 32], [1, 1], [nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)], [None, "batch"], img_size=9, bit_width=b
-#         ),
-#         QAT_ConvBlock([32, 4, 32], [1, 3], [nn.GELU(), nn.GELU()], ["batch", "layer"], img_size=9, bit_width=b),
-#         QAT_ConvBlock([32, 8, 64], [3, 3], [nn.GELU(), None], ["layer", None], img_size=7, bit_width=b),
-#     )
+    # NAC Model
+    b = 8  # Bit width
+    Blocks = nn.Sequential(
+        QAT_ConvBlock(
+            [32, 4, 32], [1, 1], [nn.ReLU(), nn.LeakyReLU(negative_slope=0.01)], [None, "batch"], img_size=9, bit_width=b
+        ),
+        QAT_ConvBlock([32, 4, 32], [1, 3], [nn.GELU(), nn.GELU()], ["batch", "layer"], img_size=9, bit_width=b),
+        QAT_ConvBlock([32, 8, 64], [3, 3], [nn.GELU(), None], ["layer", None], img_size=7, bit_width=b),
+    )
 
-#     mlp = QAT_MLP(
-#         widths=[576, 8, 4, 4, 2],
-#         acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None],
-#         norms=["layer", None, "layer", None],
-#         bit_width=b,
-#     )
+    mlp = QAT_MLP(
+        widths=[576, 8, 4, 4, 2],
+        acts=[nn.ReLU(), nn.GELU(), nn.GELU(), None],
+        norms=["layer", None, "layer", None],
+        bit_width=b,
+    )
 
-#     braggnn_model = QAT_CandidateArchitecture(Blocks, mlp, 32).to(device)
+    braggnn_model = QAT_CandidateArchitecture(Blocks, mlp, 32).to(device)
 
-#     #initialize pruning
-#     local_search.search_single_model(
-#         model=braggnn_model,
-#         train_loader=train_loader,
-#         val_loader=val_loader,
-#         test_loader=test_loader,
-#         evaluate_fn=evaluate_braggnn,
-#         model_name="BraggNN",
-#         extra_info=f"{b}-Bit QAT"
-#     )
+    #initialize pruning
+    local_search.search_single_model(
+        model=braggnn_model,
+        train_loader=train_loader,
+        val_loader=val_loader,
+        test_loader=test_loader,
+        evaluate_fn=evaluate_braggnn,
+        model_name="BraggNN",
+        extra_info=f"{b}-Bit QAT"
+    )
+"""
 
 
 
