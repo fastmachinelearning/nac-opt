@@ -3,11 +3,15 @@ import torch
 import torch.nn as nn
 import optuna
 
-from data import BraggnnDataset, DeepsetsDataset
-from examples.hyperparam_examples import BraggNN_params, Example1_params, Example2_params, Example3_params, OpenHLS_params
 from models.blocks import *
 from utils.bops import *
 from utils.processor import evaluate_BraggNN, evaluate_Deepsets
+import yaml
+import os
+
+from data.BraggnnDataset import *
+from data.DeepsetsDataset import *
+
 
 """
 Optuna Objective to evaluate a trial
@@ -17,6 +21,18 @@ Optuna Objective to evaluate a trial
 Saves all information in global_search.txt
 """
 
+
+def load_configs(config_dir="examples/"):
+    """Load YAML configuration files."""
+
+    
+    with open(os.path.join(config_dir, "BraggNN/braggnn_model_example_configs.yaml"), "r") as f:
+        braggnn_configs = yaml.safe_load(f)
+    
+    with open(os.path.join(config_dir, "DeepSets/deepsets_model_example_configs.yaml"), "r") as f:
+        deepsets_configs = yaml.safe_load(f)
+    
+    return braggnn_configs, deepsets_configs
 
 def BraggNN_objective(trial):
     # Build Model
@@ -133,131 +149,50 @@ if __name__ == "__main__":
     batch_size = 4096  # 1024
     num_workers = 8
 
+    # Load configurations
+    braggnn_configs, deepsets_configs = load_configs()
+
     # train_loader, val_loader, test_loader = BraggNNDataset.setup_data_loaders(
     #     batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2, data_folder= "data/")
-    train_loader, val_loader, test_loader = DeepsetsDataset.setup_data_loaders(
-        "jet_images_c8_minpt2_ptetaphi_robust_fast", batch_size, num_workers, prefetch_factor=True, pin_memory=True
+    base_file_name = "jet_images_c8_minpt2_ptetaphi_robust_fast"
+
+    train_loader, val_loader, test_loader = setup_data_loaders(
+        base_file_name,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        prefetch_factor=2,
+        pin_memory=True
     )
     print("Loaded Dataset...")
 
+    # For BraggNN optimization
     """
-    study = optuna.create_study(sampler=optuna.samplers.NSGAIISampler(population_size = 20), directions=['minimize', 'minimize']) #min mean_distance and inference time
+    study = optuna.create_study(
+        sampler=optuna.samplers.NSGAIISampler(population_size=20),
+        directions=['minimize', 'minimize']
+    )
 
-    #Queue OpenHLS & BraggNN architectures to show the search strategy what we want to beat.
-    study.enqueue_trial(OpenHLS_params)
-    study.enqueue_trial(BraggNN_params)
-    study.enqueue_trial(Example1_params)
-    study.enqueue_trial(Example2_params)
-    study.enqueue_trial(Example3_params)
+    # Queue example architectures from config
+    study.enqueue_trial(braggnn_configs['openhls'])
+    study.enqueue_trial(braggnn_configs['braggnn'])
+    study.enqueue_trial(braggnn_configs['example1'])
+    study.enqueue_trial(braggnn_configs['example2'])
+    study.enqueue_trial(braggnn_configs['example3'])
+    
     study.optimize(BraggNN_objective, n_trials=1000)
     """
 
-    Deepsets_params = {
-        "bottleneck_dim": 5,
-        "aggregator_type": 0,
-        "phi_len": 3,
-        "phi_MLP_width_0": 3,
-        "phi_MLP_width_1": 3,
-        "phi_MLP_acts_0": 0,
-        "phi_MLP_acts_1": 0,
-        "phi_MLP_acts_2": 0,
-        "phi_MLP_norms_0": None,
-        "phi_MLP_norms_1": None,
-        "phi_MLP_norms_2": None,
-        "rho_len": 2,
-        "rho_MLP_width_0": 2,
-        "rho_MLP_acts_0": 0,
-        "rho_MLP_acts_1": 2,
-        "rho_MLP_norms_0": None,
-        "rho_MLP_norms_1": None,
-    }
-    large_model = {
-        "bottleneck_dim": 5,
-        "aggregator_type": 0,
-        "phi_len": 2,
-        "phi_MLP_width_0": 3,
-        "phi_MLP_acts_0": 0,
-        "phi_MLP_acts_1": 0,
-        "phi_MLP_norms_0": "batch",
-        "phi_MLP_norms_1": "batch",
-        "rho_len": 3,
-        "rho_MLP_width_0": 3,
-        "rho_MLP_width_1": 4,
-        "rho_MLP_acts_0": 0,
-        "rho_MLP_acts_1": 0,
-        "rho_MLP_acts_2": 1,
-        "rho_MLP_norms_0": "batch",
-        "rho_MLP_norms_1": None,
-        "rho_MLP_norms_2": "batch",
-    }
-    medium_model = {
-        "bottleneck_dim": 4,
-        "aggregator_type": 0,
-        "phi_len": 2,
-        "phi_MLP_width_0": 3,
-        "phi_MLP_acts_0": 0,
-        "phi_MLP_acts_1": 0,
-        "phi_MLP_norms_0": "batch",
-        "phi_MLP_norms_1": "batch",
-        "rho_len": 4,
-        "rho_MLP_width_0": 4,
-        "rho_MLP_width_1": 1,
-        "rho_MLP_width_2": 3,
-        "rho_MLP_acts_0": 0,
-        "rho_MLP_acts_1": 1,
-        "rho_MLP_acts_2": 0,
-        "rho_MLP_acts_3": 0,
-        "rho_MLP_norms_0": "batch",
-        "rho_MLP_norms_1": "batch",
-        "rho_MLP_norms_2": "batch",
-        "rho_MLP_norms_3": "batch",
-    }
-    small_model = {
-        "bottleneck_dim": 3,
-        "aggregator_type": 0,
-        "phi_len": 2,
-        "phi_MLP_width_0": 1,
-        "phi_MLP_acts_0": 1,
-        "phi_MLP_acts_1": 0,
-        "phi_MLP_norms_0": "batch",
-        "phi_MLP_norms_1": None,
-        "rho_len": 3,
-        "rho_MLP_width_0": 2,
-        "rho_MLP_width_1": 2,
-        "rho_MLP_acts_0": 1,
-        "rho_MLP_acts_1": 0,
-        "rho_MLP_acts_2": 1,
-        "rho_MLP_norms_0": "batch",
-        "rho_MLP_norms_1": "batch",
-        "rho_MLP_norms_2": None,
-    }
-    tiny_model = {
-        "bottleneck_dim": 4,
-        "aggregator_type": 0,
-        "phi_len": 1,
-        "phi_MLP_acts_0": 0,
-        "phi_MLP_norms_0": "batch",
-        "rho_len": 4,
-        "rho_MLP_width_0": 1,
-        "rho_MLP_width_1": 1,
-        "rho_MLP_width_2": 0,
-        "rho_MLP_acts_0": 0,
-        "rho_MLP_acts_1": 2,
-        "rho_MLP_acts_2": 0,
-        "rho_MLP_acts_3": 0,
-        "rho_MLP_norms_0": "batch",
-        "rho_MLP_norms_1": None,
-        "rho_MLP_norms_2": None,
-        "rho_MLP_norms_3": "batch",
-    }
-
+    # For DeepSets optimization
     study = optuna.create_study(
-        sampler=optuna.samplers.NSGAIISampler(population_size=20), directions=["maximize", "minimize"]
-    )  # min mean_distance and bops
-    study.enqueue_trial(Deepsets_params)
-    study.enqueue_trial(large_model)
-    study.enqueue_trial(medium_model)
-    study.enqueue_trial(small_model)
-    study.enqueue_trial(tiny_model)
+        sampler=optuna.samplers.NSGAIISampler(population_size=20),
+        directions=["maximize", "minimize"]
+    )
+
+    # Queue example architectures from config
+    study.enqueue_trial(deepsets_configs['base'])
+    study.enqueue_trial(deepsets_configs['large'])
+    study.enqueue_trial(deepsets_configs['medium'])
+    study.enqueue_trial(deepsets_configs['small'])
+    study.enqueue_trial(deepsets_configs['tiny'])
 
     study.optimize(Deepsets_objective, n_trials=1000)
