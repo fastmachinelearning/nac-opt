@@ -10,4 +10,5 @@ data/normalized_data3-20240430T145906Z-001.zip
 *.pyc
 __pycache__/
 Results/
+plots/
 
