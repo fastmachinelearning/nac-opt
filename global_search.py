@@ -5,12 +5,12 @@ import optuna
 
 from models.blocks import *
 from utils.bops import *
-from utils.processor import evaluate_BraggNN, evaluate_Deepsets
+from utils.processor import evaluate_BraggNN, evaluate_deepsets
 import yaml
 import os
 
 from data.BraggnnDataset import *
-from data.DeepsetsDataset import *
+# from data.DeepsetsDataset import *
 
 
 """
@@ -26,7 +26,7 @@ def load_configs(config_dir="examples/"):
     """Load YAML configuration files."""
 
     
-    with open(os.path.join(config_dir, "BraggNN/braggnn_model_example_configs.yaml"), "r") as f:
+    with open(os.path.join(config_dir, "BraggNN/bragg_model_example_configs.yaml"), "r") as f:
         braggnn_configs = yaml.safe_load(f)
     
     with open(os.path.join(config_dir, "DeepSets/deepsets_model_example_configs.yaml"), "r") as f:
@@ -53,7 +53,7 @@ def BraggNN_objective(trial):
     for i, block_type in enumerate(b):
         if block_type == "Conv":
             # Create block and add to Blocks
-            channels, kernels, acts, norms = sample_ConvBlock(trial, "b" + str(i) + "_Conv", block_channels[-1])
+            channels, kernels, acts, norms = sample_ConvBlock(trial, "b" + str(i) + "_Conv", block_channels[-1]) # added str() to last element
             reduce_img_size = 2 * sum(
                 [1 if k == 3 else 0 for k in kernels]
             )  # amount the image size will be reduced by kernel size, assuming no padding
@@ -136,7 +136,7 @@ def Deepsets_objective(trial):
     print(model)
     print("BOPs:", bops)
     print("Trial ", trial.number, " begins evaluation...")
-    accuracy, inference_time, validation_loss, param_count = evaluate_Deepsets(model, train_loader, val_loader, device)
+    accuracy, inference_time, validation_loss, param_count = evaluate_deepsets(model, train_loader, val_loader, device)
     with open("./global_search.txt", "a") as file:
         file.write(
             f"Trial {trial.number}, Accuracy: {accuracy}, BOPs: {bops}, Inference time: {inference_time}, Validation Loss: {validation_loss}, Param Count: {param_count}, Hyperparams: {trial.params}\n"
@@ -149,24 +149,29 @@ if __name__ == "__main__":
     batch_size = 4096  # 1024
     num_workers = 8
 
+    # BraggNN data setup
+
     # Load configurations
     braggnn_configs, deepsets_configs = load_configs()
 
-    # train_loader, val_loader, test_loader = BraggNNDataset.setup_data_loaders(
-    #     batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2, data_folder= "data/")
-    base_file_name = "jet_images_c8_minpt2_ptetaphi_robust_fast"
-
     train_loader, val_loader, test_loader = setup_data_loaders(
-        base_file_name,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        prefetch_factor=2,
-        pin_memory=True
-    )
+        batch_size, IMG_SIZE=11, aug=1, num_workers=4, pin_memory=False, prefetch_factor=2, data_folder= "/home/users/jdweitz/Morph/data/") #redirect to my data loc
+    
+    # Deepsets data setup
+
+    # base_file_name = "jet_images_c8_minpt2_ptetaphi_robust_fast"
+
+    # train_loader, val_loader, test_loader = setup_data_loaders(
+    #     base_file_name,
+    #     batch_size=batch_size,
+    #     num_workers=num_workers,
+    #     prefetch_factor=2,
+    #     pin_memory=True
+    # )
     print("Loaded Dataset...")
 
     # For BraggNN optimization
-    """
+    
     study = optuna.create_study(
         sampler=optuna.samplers.NSGAIISampler(population_size=20),
         directions=['minimize', 'minimize']
@@ -175,24 +180,24 @@ if __name__ == "__main__":
     # Queue example architectures from config
     study.enqueue_trial(braggnn_configs['openhls'])
     study.enqueue_trial(braggnn_configs['braggnn'])
-    study.enqueue_trial(braggnn_configs['example1'])
-    study.enqueue_trial(braggnn_configs['example2'])
-    study.enqueue_trial(braggnn_configs['example3'])
+    # study.enqueue_trial(braggnn_configs['example1'])
+    # study.enqueue_trial(braggnn_configs['example2'])
+    # study.enqueue_trial(braggnn_configs['example3'])
     
     study.optimize(BraggNN_objective, n_trials=1000)
-    """
+    
 
-    # For DeepSets optimization
-    study = optuna.create_study(
-        sampler=optuna.samplers.NSGAIISampler(population_size=20),
-        directions=["maximize", "minimize"]
-    )
+    # # For DeepSets optimization
+    # study = optuna.create_study(
+    #     sampler=optuna.samplers.NSGAIISampler(population_size=20),
+    #     directions=["maximize", "minimize"]
+    # )
 
-    # Queue example architectures from config
-    study.enqueue_trial(deepsets_configs['base'])
-    study.enqueue_trial(deepsets_configs['large'])
-    study.enqueue_trial(deepsets_configs['medium'])
-    study.enqueue_trial(deepsets_configs['small'])
-    study.enqueue_trial(deepsets_configs['tiny'])
+    # # Queue example architectures from config
+    # study.enqueue_trial(deepsets_configs['base'])
+    # study.enqueue_trial(deepsets_configs['large'])
+    # study.enqueue_trial(deepsets_configs['medium'])
+    # study.enqueue_trial(deepsets_configs['small'])
+    # study.enqueue_trial(deepsets_configs['tiny'])
 
-    study.optimize(Deepsets_objective, n_trials=1000)
+    # study.optimize(Deepsets_objective, n_trials=1000)
