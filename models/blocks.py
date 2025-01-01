@@ -97,9 +97,10 @@ def sample_MLP(trial, in_dim, out_dim, prefix, num_layers=3):
 
 def sample_ConvBlock(trial, in_channels, prefix, num_layers = 2):
     #Search space to sample from
-    channel_space = []
+    prefix = str(prefix) # add
+    channel_space = [8, 16, 32, 64] #[]
     kernel_space = [1,3,5]
-    act_space = [nn.ReLU(), nn.LeakyReLU(), nn.GeLU(), lambda x: x]
+    act_space = [nn.ReLU(), nn.LeakyReLU(), nn.GELU(), lambda x: x]
     norm_space = [None, 'layer', 'batch']
 
     channels = [in_channels] + [channel_space[ trial.suggest_int(prefix + '_channels_' + str(i), 0, len(channel_space) - 1) ]
@@ -420,7 +421,7 @@ class SkipBlock(torch.nn.Module):
         self.input_size = (4,16,11,11)
         self.channels = [16,4,4,16]
         self.kernels = [1,3,1] #[1,3,5]
-        self.act = [nn.ReLU(), nn.ReLU(), lambda x: x, nn.ReLU()] #pick from [nn.ReLU(), nn.LeakyReLU(), nn.GeLU(), lambda x: x]
+        self.act = [nn.ReLU(), nn.ReLU(), lambda x: x, nn.ReLU()] #pick from [nn.ReLU(), nn.LeakyReLU(), nn.GELU(), lambda x: x]
         self.norm = ['batch', 'batch', 'batch'] #pick from ['identity', 'layer', 'batch']
 
         self.layers = []
