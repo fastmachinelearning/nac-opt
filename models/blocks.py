@@ -70,46 +70,81 @@ class MLP(torch.nn.Module):
     def forward(self, x):
         return self.layers(x)
 
-def sample_ConvAttn(trial, prefix):
-    channel_space = (1,2,4,8,16,32)
-    act_space = (nn.ReLU(), nn.LeakyReLU(negative_slope=0.01), None)
-    hidden_channels = channel_space[trial.suggest_int(prefix + '_hiddenchannel', 0, len(channel_space) - 1)]
-    act = act_space[trial.suggest_categorical(prefix + '_act', [k for k in range(len(act_space))])]
-    return hidden_channels, act
+def get_activation(act_name: str) -> nn.Module:
+    """Convert activation function name to PyTorch module"""
+    act_map = {
+        "ReLU": nn.ReLU(),
+        "LeakyReLU": nn.LeakyReLU(negative_slope=0.01),
+        "GELU": nn.GELU(),
+        "Identity": lambda x: x
+    }
+    return act_map[act_name]
 
+def sample_MLP(trial, in_dim, out_dim, prefix, search_space, num_layers=3):
+    """Generic MLP sampling function using provided search space"""
+    mlp_width_space = search_space["mlp_width_space"]
+    act_space = search_space["act_space"]
+    norm_space = search_space["norm_space"]
 
-    widths = [in_dim] + [width_space[trial.suggest_int(prefix + '_width_' + str(i), 0, len(width_space) - 1)] for i in range(num_layers-1)] + [out_dim]
-    acts = [act_space[trial.suggest_categorical(prefix + '_acts_' + str(i), (0,1,2))] for i in range(num_layers)]
-    norms = [trial.suggest_categorical(prefix + '_norms_' + str(i), norm_space) for i in range(num_layers)]
+    # Create widths list
+    widths = [in_dim]
+    for i in range(num_layers-1):
+        widths.append(mlp_width_space[trial.suggest_int(f"{prefix}_width_{i}", 0, len(mlp_width_space)-1)])
+    widths.append(out_dim)
+
+    # Sample activations
+    acts = []
+    for i in range(num_layers):
+        act_name = trial.suggest_categorical(f"{prefix}_acts_{i}", act_space)
+        acts.append(get_activation(act_name))
+
+    # Sample normalizations
+    norms = [trial.suggest_categorical(f"{prefix}_norms_{i}", norm_space) 
+             for i in range(num_layers)]
 
     return widths, acts, norms
 
-def sample_MLP(trial, in_dim, out_dim, prefix, num_layers=3):
-    width_space = (8, 16, 32, 64, 128)
-    act_space = (nn.ReLU(), nn.LeakyReLU(negative_slope=2**-7))
-    norm_space = (None, 'batch', 'layer')
+def sample_ConvBlock(trial, prefix, in_channels, search_space, num_layers=2):
+    """Generic ConvBlock sampling using provided search space"""
+    channel_space = search_space["channel_space"]
+    kernel_space = search_space["kernel_space"]
+    act_space = search_space["act_space"]
+    norm_space = search_space["norm_space"]
 
-    widths = [in_dim] + [width_space[trial.suggest_int(prefix + '_width_' + str(i), 0, len(width_space) - 1)] for i in range(num_layers-1)] + [out_dim]
-    acts = [act_space[trial.suggest_categorical(prefix + '_acts_' + str(i), (0,1))] for i in range(num_layers-1)] + [None]
-    norms = [trial.suggest_categorical(prefix + '_norms_' + str(i), norm_space) for i in range(num_layers)]
+    # Sample channels
+    channels = [int(in_channels)]
+    for i in range(num_layers):
+        next_channel = channel_space[trial.suggest_int(f"{prefix}_channels_{i}", 
+                                                     0, len(channel_space) - 1)]
+        channels.append(next_channel)
 
-    return widths, acts, norms
+    # Sample other parameters
+    kernels = [trial.suggest_categorical(f"{prefix}_kernels_{i}", kernel_space) 
+              for i in range(num_layers)]
+    
+    acts = []
+    for i in range(num_layers):
+        act_name = trial.suggest_categorical(f"{prefix}_acts_{i}", act_space)
+        acts.append(get_activation(act_name))
 
-def sample_ConvBlock(trial, in_channels, prefix, num_layers = 2):
-    #Search space to sample from
-    prefix = str(prefix) # add
-    channel_space = [8, 16, 32, 64] #[]
-    kernel_space = [1,3,5]
-    act_space = [nn.ReLU(), nn.LeakyReLU(), nn.GELU(), lambda x: x]
-    norm_space = [None, 'layer', 'batch']
-
-    channels = [in_channels] + [channel_space[ trial.suggest_int(prefix + '_channels_' + str(i), 0, len(channel_space) - 1) ]
-                                    for i in range(num_layers)] #Picks an integer an index of channel_space for easier sampling
-    kernels = [trial.suggest_categorical(prefix + '_kernels_' + str(i), kernel_space) for i in range(num_layers)]
-    norms = [trial.suggest_categorical(prefix + '_norms_' + str(i), norm_space) for i in range(num_layers)]
-    acts = [trial.suggest_categorical(prefix + '_acts_' + str(i), act_space) for i in range(num_layers)]
+    norms = [trial.suggest_categorical(f"{prefix}_norms_{i}", norm_space) 
+             for i in range(num_layers)]
 
     return channels, kernels, acts, norms
+
+def sample_ConvAttn(trial, prefix, search_space):
+    """Generic ConvAttn sampling using provided search space"""
+    hidden_channel_space = search_space["conv_attn"]["hidden_channel_space"]
+    act_space = search_space["act_space"]
+    
+    hidden_channels = hidden_channel_space[
+        trial.suggest_int(f"{prefix}_hiddenchannel", 0, len(hidden_channel_space) - 1)
+    ]
+    
+    act_name = trial.suggest_categorical(f"{prefix}_act", act_space)
+    act = get_activation(act_name)
+    
+    return hidden_channels, act
 
 
 

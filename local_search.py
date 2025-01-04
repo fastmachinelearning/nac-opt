@@ -141,7 +141,7 @@ if __name__ == "__main__":
     base_file_name = "jet_images_c8_minpt2_ptetaphi_robust_fast"
 
     # Load datasets
-    train_loader, val_loader, test_loader = setup_data_loaders(
+    train_loader, val_loader, test_loader = setup_data_loaders_deepsets(
         base_file_name,
         batch_size=batch_size,
         num_workers=num_workers,

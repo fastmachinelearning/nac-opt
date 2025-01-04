@@ -118,7 +118,7 @@ class BraggNNDataset(Dataset):
         return self.len
 
 
-def setup_data_loaders(batch_size, IMG_SIZE, aug=0, num_workers=4, pin_memory=False, prefetch_factor=2, data_folder= "./data/"):
+def setup_data_loaders_braggnn(batch_size, IMG_SIZE, aug=0, num_workers=4, pin_memory=False, prefetch_factor=2, data_folder= "./data/"):
     ds_train = BraggNNDataset(data_folder=data_folder, psz=IMG_SIZE, rnd_shift=aug, use="train")
     dl_train = DataLoader(
         ds_train,
@@ -129,7 +129,7 @@ def setup_data_loaders(batch_size, IMG_SIZE, aug=0, num_workers=4, pin_memory=Fa
         drop_last=True,
         pin_memory=pin_memory,
     )
-    # TODO: Change prefetch_factor back to 2 and pin_memory to true
+   
 
     ds_valid = BraggNNDataset(data_folder=data_folder, psz=IMG_SIZE, rnd_shift=0, use="validation")
     dl_valid = DataLoader(
