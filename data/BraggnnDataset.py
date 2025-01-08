@@ -1,6 +1,7 @@
 import logging
 import random
 
+import os
 import h5py
 import numpy as np
 import torch
@@ -31,11 +32,14 @@ def clean_patch(p, center):
 
 
 class BraggNNDataset(Dataset):
-    def __init__(self, psz=11, rnd_shift=0, use="train", train_frac=0.8, test_frac=0.1):
+    def __init__(self,data_folder, psz=11, rnd_shift=0, use="train", train_frac=0.8, test_frac=0.1):
         self.psz = psz
         self.rnd_shift = rnd_shift
 
-        with h5py.File("./data/peaks-exp4train-psz%d.hdf5" % psz, "r") as h5fd:
+        # peak_datapath= data_folder + f"peaks-exp4train-psz{psz}.hdf5"
+        peak_datapath = os.path.join(data_folder, f"peaks-exp4train-psz{psz}.hdf5")
+        with h5py.File(peak_datapath, "r") as h5fd:
+        # with h5py.File("./data/peaks-exp4train-psz%d.hdf5" % psz, "r") as h5fd:
             total_samples = h5fd["peak_fidx"].shape[0]
             train_end = int(train_frac * total_samples)
             test_start = int((1 - test_frac) * total_samples)
@@ -60,7 +64,9 @@ class BraggNNDataset(Dataset):
 
         self.fidx_base = self.peak_fidx.min()
         # only loaded frames that will be used
-        with h5py.File("./data/frames-exp4train.hdf5", "r") as h5fd:
+        frames_datapath = os.path.join(data_folder, "frames-exp4train.hdf5")
+        # with h5py.File("./data/frames-exp4train.hdf5", "r") as h5fd:
+        with h5py.File(frames_datapath, "r") as h5fd:
             self.frames = h5fd["frames"][self.peak_fidx.min() : self.peak_fidx.max() + 1]
 
         self.len = self.peak_fidx.shape[0]
@@ -112,8 +118,8 @@ class BraggNNDataset(Dataset):
         return self.len
 
 
-def setup_data_loaders(batch_size, IMG_SIZE, aug=0, num_workers=4, pin_memory=False, prefetch_factor=2):
-    ds_train = BraggNNDataset(psz=IMG_SIZE, rnd_shift=aug, use="train")
+def setup_data_loaders_braggnn(batch_size, IMG_SIZE, aug=0, num_workers=4, pin_memory=False, prefetch_factor=2, data_folder= "./data/"):
+    ds_train = BraggNNDataset(data_folder=data_folder, psz=IMG_SIZE, rnd_shift=aug, use="train")
     dl_train = DataLoader(
         ds_train,
         batch_size=batch_size,
@@ -123,9 +129,9 @@ def setup_data_loaders(batch_size, IMG_SIZE, aug=0, num_workers=4, pin_memory=Fa
         drop_last=True,
         pin_memory=pin_memory,
     )
-    # TODO: Change prefetch_factor back to 2 and pin_memory to true
+   
 
-    ds_valid = BraggNNDataset(psz=IMG_SIZE, rnd_shift=0, use="validation")
+    ds_valid = BraggNNDataset(data_folder=data_folder, psz=IMG_SIZE, rnd_shift=0, use="validation")
     dl_valid = DataLoader(
         ds_valid,
         batch_size=batch_size,
@@ -136,7 +142,7 @@ def setup_data_loaders(batch_size, IMG_SIZE, aug=0, num_workers=4, pin_memory=Fa
         pin_memory=pin_memory,
     )
 
-    ds_test = BraggNNDataset(psz=IMG_SIZE, rnd_shift=0, use="test")
+    ds_test = BraggNNDataset(data_folder=data_folder, psz=IMG_SIZE, rnd_shift=0, use="test")
     dl_test = DataLoader(
         ds_test,
         batch_size=batch_size,

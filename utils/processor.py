@@ -47,37 +47,46 @@ def evaluate_BraggNN(model, train_loader, val_loader, device, num_epochs=50, lr=
     return mean_distance, inference_time, validation_loss, param_count
 
 
-# Trains model and calculates all metrics
-def evaluate_Deepsets(model, train_loader, val_loader, device, num_epochs=80, lr=0.0032):
-    model = model.to(device)
 
-    # Train Model
+
+def evaluate_deepsets(model, train_loader, val_loader, test_loader, device, num_epochs=100, lr=0.0032):
+    """Evaluates DeepSets models by training and computing performance metrics"""
+    # Move model to device
+    model = model.to(device)
+    
+    # Initialize training components
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=3)
-    validation_loss = train(model, optimizer, scheduler, criterion, train_loader, val_loader, device, num_epochs, patience=7)
-
-    # Evaluate Performance
-    acc = get_acc(model, val_loader, device)
-
-    # Evaluate Efficiency
+    
+    # Train model
+    validation_loss = train(model, optimizer, scheduler, criterion, 
+                          train_loader, val_loader, device, 
+                          num_epochs, patience=7)
+    
+    # Calculate metrics
+    val_accuracy = get_acc(model, val_loader, device)
+    test_accuracy = get_acc(model, test_loader, device)
     param_count = get_param_count_Deepsets(model)
-    inference_time = get_inference_time(
-        model, device, img_size=(1024, 3, 8)
-    )  # Just for reference, we are not optimizing for this.
-
+    inference_time = get_inference_time(model, device, img_size=(1024, 3, 8))
+    
+    # Print results
     print(
-        "Accuracy: ",
-        acc,
-        ", Inference time: ",
-        inference_time,
-        ", Validation Loss: ",
-        validation_loss,
-        ", Param Count: ",
-        param_count,
+        f"Validation Accuracy: {val_accuracy:.4f}, "
+        f"Test Accuracy: {test_accuracy:.4f}, "
+        f"Inference time: {inference_time:.4f}, "
+        f"Validation Loss: {validation_loss:.4f}, "
+        f"Parameter Count: {param_count}"
     )
-    return acc, inference_time, validation_loss, param_count
-
+    
+    # Return metrics dictionary
+    return {
+        "val_accuracy": val_accuracy,
+        "test_accuracy": test_accuracy,
+        "val_loss": validation_loss,
+        "inference_time": inference_time,
+        "param_count": param_count
+    }
 
 def train(model, optimizer, scheduler, criterion, train_loader, valid_loader, device, num_epochs, patience=5):
     curr_patience = patience

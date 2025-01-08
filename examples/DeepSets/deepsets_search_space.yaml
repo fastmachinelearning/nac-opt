@@ -1,0 +1,14 @@
+search_spaces:
+  mlp_width_space: [8, 16, 32, 64, 128]
+  act_space:
+    - "ReLU"
+    - "LeakyReLU"
+    - "GELU"
+    - "Identity"
+  norm_space: [null, "batch", "layer"]
+  aggregator_space: ["mean", "max"]
+  bottleneck_range: [0, 6]  # for 2^x, resulting in range [1, 64]
+
+hyperparameters:
+  phi_len_range: [1, 4]
+  rho_len_range: [1, 4]

@@ -1,29 +1,144 @@
-# Morph: A Model Optimization Toolkit for Physics
-We plan to add more tasks & examples to this toolkit such as Jet Classification, Tagging, & Anomaly Detection.
-This repository is in the process of getting cleaned, see Rework branch for updates.
+# Neural Architecture Codesign for Fast Physics Applications
+This repository contains the implementation of Neural Architecture Codesign (NAC), a framework for optimizing neural network architectures for physics applications with hardware efficiency in mind. NAC employs a two-stage optimization process to discover models that balance task performance with hardware constraints.
+## Overview
 
-# Directions
-### Set up Environment
-Create a virtual environment: `` python3 -m venv .env ``
-Load the virtual environment: ``source .env/bin/activate``
-Install dependencies: ``pip install -r requirements.txt``
+NAC automates the design of deep learning models for physics applications while considering hardware constraints. The framework uses neural architecture search and network compression in a two-stage approach:
 
-### Set up dataset
-For the dataset used in BraggNN, run ``python data/get_dataset.py`` to generate the set.
+1. Global Search Stage: Explores diverse architectures while considering hardware constraints
+2. Local Search Stage: Fine-tunes and compresses promising candidates
+3. FPGA Synthesis (*optional*): Converts optimized models to FPGA-deployable code
 
-For Deepsets dataset, download the normalized_data3.zip file and unzip it into /data/normalized_data3/
+The framework is demonstrated through two case studies:
+- BraggNN: Fast X-ray Bragg peak analysis for materials science
+- Jet Classification: Deep Sets architecture for particle physics
+
+## Case Studies
+
+The framework is demonstrated through two case studies:
+
+### BraggNN
+- Fast X-ray Bragg peak analysis for materials science
+- Convolutional architecture with attention mechanisms
+- Optimizes for peak position prediction accuracy and inference speed
+
+### Deep Sets for Jet Classification 
+- Particle physics classification using permutation-invariant architectures
+- Optimizes classification accuracy and hardware efficiency
+
+
+## Installation
+
+1. Create a conda environment:
+```bash
+conda create --name NAC_env python=3.10.10
+conda activate NAC_env
+```
+
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+3. Download datasets:
+- For BraggNN:
+```bash
+python data/get_dataset.py
+```
+- For Deep Sets: Download `normalized_data3.zip` and extract to `/data/normalized_data3/`
+
+## Usage
 
 ### Global Search
-Run ``python global_search.py`` to search across architectures that minimize mean_distance & BOPs, the reports will be at global_search.txt. Note: this will run on cuda:0, so make sure to change the device variable in main if this needs to run on another device.
 
-#### Examples of using blocks.py to recreate these architectures in global search
-Check out ``examples/model_examples.py`` to see how we can create architectures from these blocks.
-For examples to see how the Optuna selects the hyperparameters to create these blocks, see ``examples/hyperparam_examples.py``
+Run architecture search for either BraggNN or Deep Sets:
 
-### HPO for Training Optimization
-In ``examples/NAC/HPO_NAC.py``, we initialize the best model from Global Search; however, can replace this with any model you want. This will save all the trials & create the file ``NAC_HPO_trials.txt``. To run this, change the cuda device and run ``python examples/NAC/HPO_NAC.py``.
+```bash
+python global_search.py
+```
 
-To rerun HPO for BraggNN and OpenHLS models, we saved separate files. You can run ``HPO_BraggNN.py`` & ``HPO_OpenHLS.py`` which saves to ``BraggNN_HPO_trials.txt`` and ``OpenHLS_HPO_trials.txt`` accordingly in their respective folders.
+The script will output results to `global_search.txt`. For the Deep Sets model, results will be in `Results/global_search.txt`.
 
-### Model Compression to minimize BOPs further
-Once you have an optimal training, edit the hyperparameters in ``compress.py`` and run  ``python compress.py``. This will perform iterative magnitude pruning with quantization-aware training. Change the max pruning iteration and the bit_width ``b`` for different compression levels. We saved our results with compressing NAC in ``examples/NAC/NAC_Compress.txt``.
+### Local Search
+
+Run model compression and optimization:
+
+```bash
+python local_search.py
+```
+
+Results will be saved in `Results/deepsets_search_results.txt` or `Results/bragg_search_results.txt`.
+
+## Directory Structure
+
+```
+.
+├── data/                         # Dataset handling
+├── examples/                     # Example configs and search spaces
+│   ├── BraggNN/
+│   └── DeepSets/
+├── models/                       # Model architectures
+├── utils/                        # Utility functions
+├── global_search.py             # Global architecture search
+├── local_search.py              # Local optimization
+└── requirements.txt
+```
+
+## Architecture Search Methodology
+
+### Global Search Stage
+The global search explores a wide range of model architectures to find promising candidates that balance performance and hardware efficiency. This stage:
+
+1. **Example Model Starting Points**: 
+   - Uses pre-defined model configurations in `*_model_example_configs.yaml` as initial reference points
+   - For BraggNN: includes baseline architectures like OpenHLS and original BraggNN
+   - For Deep Sets: includes baseline architectures of varying sizes (tiny to large)
+
+2. **Explores Architecture Space**:
+   - Search space defined in `*_search_space.yaml` specifies possible model variations
+   - For BraggNN: explores combinations of convolutional, attention, and MLP blocks
+   - For Deep Sets: varies network widths, aggregation functions, and MLP architectures
+
+3. **Multi-Objective Optimization**:
+   - Uses NSGA-II algorithm to optimize both task performance and hardware efficiency
+   - Evaluates models based on accuracy/mean distance and bit operations (BOPs)
+   - Maintains diverse population of candidate architectures
+
+Run global search with:
+```bash
+python global_search.py
+```
+
+### Local Search Stage
+The local search takes promising architectures from the global search and optimizes them further through:
+
+1. **Training Optimization**:
+   - Fine-tunes hyperparameters using tree-structured Parzen estimation
+   - Optimizes learning rates, batch sizes, and regularization
+
+2. **Model Compression**:
+   - Quantization-aware training (4-32 bits)
+   - Iterative magnitude pruning (20 iterations, removing 20% parameters each time)
+   - Evaluates trade-offs between model size, accuracy, and hardware efficiency
+
+3. **Architecture Selection**:
+   - Identifies best models across different operating points
+   - Balances accuracy, latency, and resource utilization
+
+Run local search with:
+```bash
+python local_search.py
+```
+## Results
+
+The framework achieves:
+
+### BraggNN
+- 0.5% improved accuracy with 5.9× fewer BOPs (large model)
+- 3% accuracy decrease for 39.2× fewer BOPs (small model)
+- 4.92 μs latency with <10% FPGA resource utilization
+
+### Jet Classification
+- 1.06% improved accuracy with 7.2× fewer BOPs (medium model)
+- 2.8% accuracy decrease for 30.25× fewer BOPs (tiny model)
+- 70 ns latency with <3% FPGA resource utilization
+

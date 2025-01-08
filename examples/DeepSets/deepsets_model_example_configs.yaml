@@ -1,0 +1,102 @@
+## Base
+base:
+  bottleneck_dim: 5
+  aggregator_type: "mean"   
+  phi_len: 3
+  phi_MLP_width_0: 3
+  phi_MLP_width_1: 3
+  phi_MLP_acts_0: "ReLU"     
+  phi_MLP_acts_1: "ReLU"    
+  phi_MLP_acts_2: "ReLU"    
+  phi_MLP_norms_0: null
+  phi_MLP_norms_1: null
+  phi_MLP_norms_2: null
+  rho_len: 2
+  rho_MLP_width_0: 2
+  rho_MLP_acts_0: "ReLU"    
+  rho_MLP_acts_1: "GELU"    
+  rho_MLP_norms_0: null
+  rho_MLP_norms_1: null
+
+## Large
+large:
+  bottleneck_dim: 5
+  aggregator_type: "mean"    
+  phi_len: 2
+  phi_MLP_width_0: 3
+  phi_MLP_acts_0: "ReLU"    
+  phi_MLP_acts_1: "ReLU"     
+  phi_MLP_norms_0: "batch"
+  phi_MLP_norms_1: "batch"
+  rho_len: 3
+  rho_MLP_width_0: 3
+  rho_MLP_width_1: 4
+  rho_MLP_acts_0: "ReLU"     
+  rho_MLP_acts_1: "ReLU"    
+  rho_MLP_acts_2: "LeakyReLU"
+  rho_MLP_norms_0: "batch"
+  rho_MLP_norms_1: null
+  rho_MLP_norms_2: "batch"
+
+## Medium
+medium:
+  bottleneck_dim: 4
+  aggregator_type: "mean"    
+  phi_len: 2
+  phi_MLP_width_0: 3
+  phi_MLP_acts_0: "ReLU"    
+  phi_MLP_acts_1: "ReLU"     
+  phi_MLP_norms_0: "batch"
+  phi_MLP_norms_1: "batch"
+  rho_len: 4
+  rho_MLP_width_0: 4
+  rho_MLP_width_1: 1
+  rho_MLP_width_2: 3
+  rho_MLP_acts_0: "ReLU"     
+  rho_MLP_acts_1: "LeakyReLU" 
+  rho_MLP_acts_2: "ReLU"     
+  rho_MLP_acts_3: "ReLU"    
+  rho_MLP_norms_0: "batch"
+  rho_MLP_norms_1: "batch"
+  rho_MLP_norms_2: "batch"
+  rho_MLP_norms_3: "batch"
+
+## Small
+small:
+  bottleneck_dim: 3
+  aggregator_type: "mean"     
+  phi_len: 2
+  phi_MLP_width_0: 1
+  phi_MLP_acts_0: "LeakyReLU" 
+  phi_MLP_acts_1: "ReLU"    
+  phi_MLP_norms_0: "batch"
+  phi_MLP_norms_1: null
+  rho_len: 3
+  rho_MLP_width_0: 2
+  rho_MLP_width_1: 2
+  rho_MLP_acts_0: "LeakyReLU" 
+  rho_MLP_acts_1: "ReLU"    
+  rho_MLP_acts_2: "LeakyReLU" 
+  rho_MLP_norms_0: "batch"
+  rho_MLP_norms_1: "batch"
+  rho_MLP_norms_2: null
+
+## Tiny
+tiny:
+  bottleneck_dim: 4
+  aggregator_type: "mean"    
+  phi_len: 1
+  phi_MLP_acts_0: "ReLU"     
+  phi_MLP_norms_0: "batch"
+  rho_len: 4
+  rho_MLP_width_0: 1
+  rho_MLP_width_1: 1
+  rho_MLP_width_2: 0
+  rho_MLP_acts_0: "ReLU"     
+  rho_MLP_acts_1: "GELU"     
+  rho_MLP_acts_2: "ReLU"    
+  rho_MLP_acts_3: "ReLU"     
+  rho_MLP_norms_0: "batch"
+  rho_MLP_norms_1: null
+  rho_MLP_norms_2: null
+  rho_MLP_norms_3: "batch"
