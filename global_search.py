@@ -233,7 +233,7 @@ if __name__ == "__main__":
         train_loader, val_loader, test_loader = setup_data_loaders_braggnn(
             batch_size, IMG_SIZE=11, aug=1, num_workers=4, 
             pin_memory=False, prefetch_factor=2, 
-            data_folder="/home/users/ddemler/dima_stuff/Morph/data/"
+            data_folder="./Morph/data/"
         )
         
         study = optuna.create_study(

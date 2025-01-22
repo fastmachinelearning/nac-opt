@@ -1,7 +1,7 @@
 # Neural Architecture Codesign for Fast Physics Applications
 This repository contains the implementation of Neural Architecture Codesign (NAC), a framework for optimizing neural network architectures for physics applications with hardware efficiency in mind. NAC employs a two-stage optimization process to discover models that balance task performance with hardware constraints.
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14618350.svg)](https://doi.org/10.5281/zenodo.14618350)
+<!-- [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.14618350.svg)](https://doi.org/10.5281/zenodo.14618350) -->
 
 ## Overview
 
