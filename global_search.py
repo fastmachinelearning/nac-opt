@@ -165,21 +165,25 @@ def Deepsets_objective(trial):
 
     aggregator_type = trial.suggest_categorical("aggregator_type", 
                                               spaces["aggregator_space"])
-    aggregator = (lambda x: torch.mean(x, dim=2) if aggregator_type == "mean" 
-                 else lambda x: torch.max(x, dim=2).values)
     
-    if aggregator_type == "mean":
-        bops += get_AvgPool_bops(input_shape=(8, bottleneck_dim), bit_width=8)
-    else:
-        bops += get_MaxPool_bops(input_shape=(8, bottleneck_dim), bit_width=8)
+    aggregator_type = trial.suggest_categorical("aggregator_type", spaces["aggregator_space"])
 
+    if aggregator_type == "mean":
+        aggregator = lambda x: torch.mean(x, dim=2)
+        bops += get_AvgPool_bops(input_shape=(8, bottleneck_dim), bit_width=8)
+
+    elif aggregator_type == "max":
+        aggregator = lambda x: torch.max(x, dim=2)[0]
+        bops += get_MaxPool_bops(input_shape=(8, bottleneck_dim), bit_width=8)
+    
     # Initialize networks
     phi_len = trial.suggest_int("phi_len", *hyper_params["phi_len_range"])
+    # def sample_MLP(trial, in_dim, out_dim, prefix, search_space, num_layers=3):
     phi_widths, phi_acts, phi_norms = sample_MLP(
-        trial, 
-        in_dim, 
-        bottleneck_dim, 
-        "phi_MLP", 
+        trial = trial, 
+        in_dim = in_dim, 
+        out_dim = bottleneck_dim, 
+        prefix ="phi_MLP", 
         search_space=spaces,
         num_layers=phi_len
     )
@@ -211,7 +215,7 @@ def Deepsets_objective(trial):
     validation_loss = metrics['val_loss']
     param_count = metrics['param_count']
 
-    with open("./global_search.txt", "a") as file:
+    with open("./Results/global_search.txt", "a") as file:
         file.write(
             f"Trial {trial.number}, Accuracy: {accuracy}, BOPs: {bops}, "
             f"Inference time: {inference_time}, Validation Loss: {validation_loss}, "
@@ -224,6 +228,8 @@ if __name__ == "__main__":
     
     batch_size = 4096
     num_workers = 4
+
+    os.makedirs("./Results", exist_ok=True)
 
     # BraggNN optimization
     if False:  # Change this flag to switch between tasks

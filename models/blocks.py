@@ -76,7 +76,7 @@ def get_activation(act_name: str) -> nn.Module:
         "ReLU": nn.ReLU(),
         "LeakyReLU": nn.LeakyReLU(negative_slope=0.01),
         "GELU": nn.GELU(),
-        "Identity": lambda x: x
+        "Identity": nn.Identity(),
     }
     return act_map[act_name]
 
