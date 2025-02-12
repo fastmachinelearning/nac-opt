@@ -5,6 +5,7 @@ from typing import List, Tuple, Union, Callable
 from dataclasses import dataclass
 from torch.utils.data import DataLoader
 import brevitas.nn as qnn
+import os
 
 
 from models.blocks import *
@@ -158,6 +159,8 @@ if __name__ == "__main__":
         log_file="Results/deepsets_search_results.txt",
         device="cuda" if torch.cuda.is_available() else "cpu"
     )
+
+    os.makedirs("./Results", exist_ok=True)
     
     # Initialize search
     local_search = LocalSearch(config)

@@ -145,3 +145,27 @@ The framework achieves:
 - 2.8% accuracy decrease for 30.25× fewer BOPs (tiny model)
 - 70 ns latency with <3% FPGA resource utilization
 
+
+## Citation
+
+If you use this code in your research, please cite our paper:
+
+```bibtex
+@misc{weitz2025neuralarchitecturecodesignfast,
+      title={Neural Architecture Codesign for Fast Physics Applications}, 
+      author={Jason Weitz and Dmitri Demler and Luke McDermott and Nhan Tran and Javier Duarte},
+      year={2025},
+      eprint={2501.05515},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2501.05515}, 
+}
+```
+
+## Docker
+
+You can run this project using our pre-built Docker image:
+
+```bash
+docker pull gitlab-registry.nrp-nautilus.io/dimademler/nac_image:latest
+```
