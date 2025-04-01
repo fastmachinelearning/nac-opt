@@ -1,6 +1,0 @@
-torch==1.13.0
-numpy==1.24.4
-h5py==3.10.0
-scikit-image==0.21.0
-optuna==3.4.0
-brevitas==0.9.1
