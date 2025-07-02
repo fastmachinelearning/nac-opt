@@ -11,4 +11,5 @@ data/normalized_data3-20240430T145906Z-001.zip
 __pycache__/
 Results/
 plots/
+.DS_Store
 
