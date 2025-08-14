@@ -1,7 +1,0 @@
-num_layers: [2, 3]
-hidden_units1: [2, 4, 8, 16, 32]
-activation1: [null, "relu", "tanh", "sigmoid"]
-batchnorm1: [false, true]
-hidden_units2: [2, 4, 8, 16, 32]
-activation2: [null, "relu", "tanh", "sigmoid"]
-batchnorm2: [false, true]
