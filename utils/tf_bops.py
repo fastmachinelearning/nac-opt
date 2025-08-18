@@ -22,13 +22,29 @@ def get_matmul_bops_tf(a, b, bit_width=32):
     return bops
 
 def get_linear_bops_tf(layer, bit_width=32, input_shape=None):
+    """
+    Calculate BOPs for a Dense (Linear) layer.
+    
+    Parameters:
+        layer: tf.keras.layers.Dense layer
+        bit_width: Bit width for calculations
+        input_shape: Input shape tuple (batch_size, input_features)
+        
+    Returns:
+        BOPs for this layer
+    """
     if input_shape is None:
         input_shape = layer.input_shape if hasattr(layer, 'input_shape') else layer.input_spec.shape
-    return (
-        layer.units
-        * input_shape[-1]
-        * (bit_width**2 + 2 * bit_width + math.log2(input_shape[-1]))
-    )
+    
+    input_features = input_shape[-1]
+    output_features = layer.units
+    
+    # BOPs = input_features * output_features * (bit_width^2 + 2*bit_width + log2(input_features))
+    mult_bops = input_features * output_features * bit_width**2
+    add_bops = input_features * output_features * 2 * bit_width
+    log_bops = output_features * math.log2(max(input_features, 1)) * bit_width
+    
+    return mult_bops + add_bops + log_bops
 
 def get_conv2d_bops_tf(layer, input_shape, bit_width=32):
     output_spatial_dim = input_shape[-1] if layer.kernel_size == 1 else input_shape[-1] - 2
@@ -90,18 +106,62 @@ def get_ConvAttn_bops_tf(block, input_shape=(64, 1, 9, 9), bit_width=32):
 
     return bops
 
-def get_MLP_bops_tf(block, input_shape, bit_width=32):
+def get_MLP_bops_tf(model, input_shape, bit_width=32):
+    """
+    Calculate BOPs for a TensorFlow MLP model.
+    
+    Parameters:
+        model: TensorFlow/Keras model
+        input_shape: Input shape tuple (batch_size, features)
+        bit_width: Bit width for calculations
+        
+    Returns:
+        Total BOPs for the model
+    """
     bops = 0
     current_input_shape = input_shape
-    for i, layer in enumerate(block.layers):
+    
+    for layer in model.layers:
         if isinstance(layer, tf.keras.layers.Dense):
             bops += get_linear_bops_tf(layer, bit_width, input_shape=current_input_shape)
             current_input_shape = (current_input_shape[0], layer.units)
         elif isinstance(layer, (tf.keras.layers.BatchNormalization, tf.keras.layers.LayerNormalization)):
-            # Normalization layers don't add BOPs, but their output shape is the same as input
+            # Normalization layers don't add significant BOPs
             pass
-        elif hasattr(layer, 'output_shape'):
+        elif hasattr(layer, 'output_shape') and layer.output_shape is not None:
             current_input_shape = layer.output_shape
+    
+    return bops
+
+def get_model_bops_tf(model, input_shape, bit_width=32):
+    """
+    Generic function to calculate BOPs for any TensorFlow model.
+    
+    Parameters:
+        model: TensorFlow/Keras model
+        input_shape: Input shape tuple
+        bit_width: Bit width for calculations
+        
+    Returns:
+        Total BOPs for the model
+    """
+    bops = 0
+    current_input_shape = input_shape
+    
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.layers.Dense):
+            bops += get_linear_bops_tf(layer, bit_width, input_shape=current_input_shape)
+            current_input_shape = (current_input_shape[0], layer.units)
+        elif isinstance(layer, tf.keras.layers.Conv2D):
+            bops += get_conv2d_bops_tf(layer, current_input_shape, bit_width)
+            # Update shape after conv2d
+            if hasattr(layer, 'compute_output_shape'):
+                current_input_shape = layer.compute_output_shape(current_input_shape)
+        elif isinstance(layer, (tf.keras.layers.BatchNormalization, tf.keras.layers.LayerNormalization)):
+            # Normalization layers have minimal BOPs
+            pass
+        # Add more layer types as needed
+        
     return bops
 
 def get_AvgPool_bops_tf(input_shape, dim=1, bit_width=32):
@@ -125,12 +185,13 @@ def get_AvgPool_bops_tf(input_shape, dim=1, bit_width=32):
     input_elements = math.prod(input_shape)
     read_ops = input_elements * math.log2(input_elements)
 
-    # memry access operations for writing the output tensor
+    # memory access operations for writing the output tensor
     # write_ops = output_elements * math.log2(output_elements)
 
     total_bit_operations = sum_bit_operations + div_bit_operations + read_ops
 
     return total_bit_operations
+
 
 def get_MaxPool_bops_tf(input_shape, dim=1, bit_width=32):
 
