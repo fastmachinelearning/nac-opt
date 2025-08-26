@@ -120,7 +120,7 @@ def build_deepsets_model(phi_config, rho_config, aggregator_type='mean',
     Returns:
         Keras Model
     """
-    from models.tf_blocks import DeepSetsArchitecture_tf
+    from utils.tf_blocks import DeepSetsArchitecture_tf
     
     # Build phi network
     phi_layers = []

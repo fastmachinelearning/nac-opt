@@ -76,3 +76,57 @@ class DeepSetsArchitecture_tf(tf.keras.Model):
         # Apply rho
         x_rho = self.rho(x_agg, training=training)  # Pass training flag for BatchNorm
         return x_rho
+
+
+
+class ConvAttentionBlock(tf.keras.layers.Layer):
+    """Custom Keras layer for convolutional self-attention."""
+    def __init__(self, in_channels, hidden_channels, activation=None, **kwargs):
+        super().__init__(**kwargs)
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.activation = activation
+
+        # Define sub-layers in __init__
+        self.q_conv = tf.keras.layers.Conv2D(hidden_channels, 1, name='query')
+        self.k_conv = tf.keras.layers.Conv2D(hidden_channels, 1, name='key')
+        self.v_conv = tf.keras.layers.Conv2D(hidden_channels, 1, name='value')
+        self.proj_conv = tf.keras.layers.Conv2D(in_channels, 1, name='projection')
+
+        if self.activation is not None:
+            if isinstance(self.activation, str):
+                self.act_layer = tf.keras.layers.Activation(self.activation)
+            else:
+                self.act_layer = self.activation
+        else:
+            self.act_layer = None
+
+    def call(self, x):
+        """Forward pass logic using TensorFlow and Keras operations."""
+        # Get dynamic shape components
+        batch_size = tf.shape(x)[0]
+        height = tf.shape(x)[1]
+        width = tf.shape(x)[2]
+        
+        q = self.q_conv(x)
+        k = self.k_conv(x)
+        v = self.v_conv(x)
+        
+        q = tf.reshape(q, [batch_size, height * width, self.hidden_channels])
+        k = tf.reshape(k, [batch_size, height * width, self.hidden_channels])
+        v = tf.reshape(v, [batch_size, height * width, self.hidden_channels])
+        
+        attention_scores = tf.matmul(q, k, transpose_b=True)
+        attention_weights = tf.nn.softmax(attention_scores, axis=-1)
+        attended = tf.matmul(attention_weights, v)
+        
+        attended = tf.reshape(attended, [batch_size, height, width, self.hidden_channels])
+        
+        projected = self.proj_conv(attended)
+        
+        output = x + projected # Residual connection
+        
+        if self.act_layer is not None:
+            output = self.act_layer(output)
+            
+        return output

@@ -1,0 +1,48 @@
+# ===================================================================
+# Search Space Configuration for Hybrid Block-Based Architecture Search
+# ===================================================================
+
+# -------------------------------------------------------------------
+# I. Search Spaces: Defines the range of possible hyperparameter values.
+# The optimizer will sample from these lists during the search.
+# -------------------------------------------------------------------
+search_spaces:
+  # Defines the possible number of output channels for Conv layers.
+  channel_space: [8, 16, 32]
+
+  # Defines the possible number of units in Dense (MLP) layers.
+  mlp_width_space: [32, 64, 128]
+
+  # Defines the possible kernel sizes for Conv layers.
+  kernel_space: [1, 3, 5]
+
+  # Defines the activation functions to choose from.
+  act_space: ["ReLU", "GELU"]
+
+  # Defines the normalization layers to choose from. `null` means no normalization.
+  norm_space: [null, "batch"]
+
+  # This is the core of the hybrid search!
+  # The optimizer will construct the model's feature extractor by picking
+  # a sequence of blocks from this list.
+  # - "Conv": A standard convolutional block.
+  # - "MLP": A fully-connected layer (will flatten the input if needed).
+  # - "None": An identity block (effectively skipping a layer).
+  # You could also add "ConvAttn" if you want attention mechanisms.
+  block_types: ["Conv", "MLP", "None"]
+
+# -------------------------------------------------------------------
+# II. Global Hyperparameters: Fixed settings for the search.
+# -------------------------------------------------------------------
+hyperparameters:
+  # The total number of blocks in the feature extractor part of the model.
+  # The search will create `num_blocks` placeholders and fill each one
+  # with a choice from the `block_types` list above.
+  num_blocks: 4
+
+  # The height and width of the input images (e.g., 11 for 11x11).
+  initial_img_size: 11
+
+  # The number of output classes for the final classifier (e.g., 10 for MNIST).
+  output_dim: 10
+

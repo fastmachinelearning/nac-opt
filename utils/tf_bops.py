@@ -215,3 +215,32 @@ def get_MaxPool_bops_tf(input_shape, dim=1, bit_width=32):
 
     bops = num_comparisons * bops_per_comparison + read_bops
     return bops
+
+
+
+def estimate_conv_bops(channels, kernels, img_size, bit_width=32):
+        """Estimate BOPs for convolutional operations."""
+        bops = 0
+        current_size = img_size
+        for i, kernel in enumerate(kernels):
+            if kernel > 1:
+                current_size -= (kernel - 1)
+            output_elements = channels[i+1] * (current_size ** 2)
+            kernel_ops = channels[i] * (kernel ** 2)
+            bops += output_elements * kernel_ops * (bit_width ** 2)
+        return bops
+    
+def estimate_attention_bops( in_channels, hidden_channels, img_size, bit_width=32):
+    """Estimate BOPs for attention operations."""
+    seq_len = img_size ** 2
+    qkv_bops = 3 * in_channels * hidden_channels * seq_len * (bit_width ** 2)
+    attn_bops = seq_len * seq_len * hidden_channels * (bit_width ** 2)
+    proj_bops = hidden_channels * in_channels * seq_len * (bit_width ** 2)
+    return qkv_bops + attn_bops + proj_bops
+
+def estimate_mlp_bops(widths, bit_width=32):
+    """Estimate BOPs for MLP operations."""
+    bops = 0
+    for i in range(len(widths) - 1):
+        bops += widths[i] * widths[i+1] * (bit_width ** 2)
+    return bops
