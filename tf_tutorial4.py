@@ -142,7 +142,7 @@ searcher_simple.search_space = search_space_simple
 
 study_simple = searcher_simple.run_search(
     model_type='block',
-    n_trials=N_TRIALS_HYBRID,
+    n_trials=15,
     epochs=EPOCHS_HYBRID,
     dataset='mnist',
     subset_size=SUBSET_SIZE_HYBRID,
@@ -169,11 +169,11 @@ if not results_df_hybrid.empty:
     # Display basic statistics
     print("\nHybrid Search Results Summary:")
     print(f"Total trials completed: {len(results_df_hybrid)}")
-    print(f"Best Accuracy: {results_df_hybrid['accuracy'].max():.4f}")
+    print(f"Best Accuracy: {results_df_hybrid['performance_metric'].max():.4f}")
     print(f"Lowest BOPs: {results_df_hybrid['bops'].min()}")
 
     print("\nTop 5 Hybrid Architectures by Performance:")
-    print(results_df_hybrid.sort_values('accuracy', ascending=False).head())
+    print(results_df_hybrid.sort_values('performance_metric', ascending=False).head())
 
     # --- Visualize the Pareto Fronts (Accuracy vs BOPs) ---
     print("\n--- Generating Pareto Front Plots for Hybrid Search ---")
