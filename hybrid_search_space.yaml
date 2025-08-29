@@ -5,8 +5,7 @@ search_spaces:
   kernel_space: [1, 3, 5]
   act_space: ["ReLU", "GELU"]
   norm_space: [null, "batch"]
-  block_types: ["Conv", "MLP", "None", "ConvAttn"]
-  # block_types: ["Conv", "MLP", "None"]
+  block_types: ["Conv", "MLP", "None"]
 hyperparameters:
   num_blocks: 4
   initial_img_size: 11
