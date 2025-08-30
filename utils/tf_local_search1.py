@@ -20,7 +20,7 @@ get_custom_objects().update(custom_objects)
 
 # Import necessary builder functions from other utils
 # These are needed to reconstruct the model from the YAML file
-from .tf_global_search5 import create_conv_block_tf, build_mlp_from_config_tf, BlockArchitectureTF, get_activation_tf
+from .tf_global_search5 import create_conv_block_tf, build_mlp_from_config_classifier, BlockArchitectureTF, get_activation_tf
 
 def load_model_from_yaml(yaml_path: str) -> tf.keras.Model:
     """
@@ -58,14 +58,14 @@ def load_model_from_yaml(yaml_path: str) -> tf.keras.Model:
             is_flattened = True
         elif block_type == 'MLP' and name != 'classifier_head': # Handle intermediate MLP blocks
             params['activations'] = [get_activation_tf(act) for act in params['activations']]
-            block = build_mlp_from_config_tf(**params, name=name)
+            block = build_mlp_from_config_classifier(**params, name=name)
             feature_extractor_blocks.append(block)
     
     # Reconstruct classifier head
     classifier_head_config = next(c for c in arch_config['components'] if c['name'] == 'classifier_head')
     mlp_params = classifier_head_config['params']
     mlp_params['activations'] = [get_activation_tf(act) for act in mlp_params['activations']]
-    classifier_head = build_mlp_from_config_tf(**mlp_params, name='classifier_head')
+    classifier_head = build_mlp_from_config_classifier(**mlp_params, name='classifier_head')
 
     # Build the final model using the BlockArchitecture wrapper
     model_wrapper = BlockArchitectureTF(
@@ -94,7 +94,7 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
     """
     weight_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
     bias_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
-    activation_quantizer = quantizers.quantized_relu(total_bits, int_bits)
+    # activation_quantizer = quantizers.quantized_relu(total_bits, int_bits)
 
     # Create a new functional model by iterating through the layers of the original model
     input_layer = model.inputs[0]
@@ -123,25 +123,30 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
                 bias_quantizer=bias_quantizer,
                 name=f"q_{layer.name}"
             )
-        elif isinstance(layer, (tf.keras.layers.ReLU, tf.keras.layers.Activation)):
-            # Replace ReLU-like activations with QActivation
-            new_layer = QActivation(activation=activation_quantizer, name=f"q_{layer.name}")
+             
+        elif isinstance(layer, tf.keras.layers.Activation):
+            # Match the original activation type
+            if 'relu' in layer.get_config()['activation'].lower():
+                activation_quantizer = quantizers.quantized_relu(total_bits, int_bits)
+            elif 'linear' in layer.get_config()['activation'].lower():
+                # Don't quantize linear activations
+                x = layer(x)
+                continue
+            else:
+                # For GELU, tanh, etc., use quantized_bits which preserves the range
+                activation_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
+            
+            x = QActivation(activation=activation_quantizer, name=f"q_{layer.name}")(x)
+
         else:
-            # Clone other layers (like Flatten, BatchNormalization)
+            # Keep other layers as-is (Flatten, BatchNorm, etc.)
             config = layer.get_config()
             config['name'] = f"clone_{layer.name}"
             new_layer = layer.__class__.from_config(config)
-
-        # Connect the new layer
-        input_nodes = layer.inbound_nodes[0].parent_nodes
-        if len(input_nodes) == 1:
-            prev_layer_output = layer_map[input_nodes[0].layer.name]
-            x = new_layer(prev_layer_output)
-        else: # Handle multiple inputs if necessary (not expected for these models)
-            prev_outputs = [layer_map[node.layer.name] for node in input_nodes]
-            x = new_layer(prev_outputs)
-            
-        layer_map[layer.name] = x
+            x = new_layer(x)
+            # Transfer weights if applicable
+            if layer.weights:
+                new_layer.set_weights(layer.get_weights())
 
     qat_model = tf.keras.Model(inputs=input_layer, outputs=x, name=f"qat_model_{total_bits}b")
     print(f"--- Converted to QAT model with <{total_bits},{int_bits}> precision ---")
@@ -184,9 +189,18 @@ def run_pruning_loop(model: tf.keras.Model, train_data, val_data, config: dict, 
         target_sparsity = 1 - (config['pruning_rate'] ** (iteration + 1))
         print(f"\n--- Pruning Iteration {iteration+1}/{num_iterations} | Target Sparsity: {target_sparsity:.4f} ---")
 
+        # pruning_params = {
+        #     'pruning_schedule': tfmot.sparsity.keras.ConstantSparsity(
+        #         target_sparsity=target_sparsity, begin_step=0, frequency=100
+        #     )
+        # }
+
         pruning_params = {
-            'pruning_schedule': tfmot.sparsity.keras.ConstantSparsity(
-                target_sparsity=target_sparsity, begin_step=0, frequency=100
+            'pruning_schedule': tfmot.sparsity.keras.PolynomialDecay(
+                initial_sparsity=0.0,
+                final_sparsity=target_sparsity,
+                begin_step=10,  # Start after some warmup
+                end_step=100
             )
         }
         

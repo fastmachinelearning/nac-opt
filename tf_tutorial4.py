@@ -4,6 +4,9 @@
 
 # %%
 
+
+# %%
+
 import os
 import yaml
 import tensorflow as tf
@@ -12,7 +15,7 @@ import pandas as pd
 # Import the necessary search functions and visualization tools from the library
 # Note: We import from two different modules to showcase both search types
 from utils.tf_global_search import run_mlp_search
-from utils.tf_global_search4 import GlobalSearchTF
+from utils.tf_global_search5 import GlobalSearchTF
 from utils.tf_visualization import plot_pareto_fronts, plot_3d_pareto_front_heatmap
 
 # Use matplotlib for inline plotting in notebooks
@@ -28,10 +31,10 @@ tf.get_logger().setLevel('ERROR')
 
 # %%
 # --- Configuration for Part 1 ---
-N_TRIALS_MLP = 15
-EPOCHS_MLP = 20
+N_TRIALS_MLP = 5
+EPOCHS_MLP = 10
 SUBSET_SIZE_MLP = 10000
-RESULTS_DIR_MLP = "./results/mlp_hw_search_tutorial"
+RESULTS_DIR_MLP = "./results/tutorial4_MLP"
 USE_HARDWARE_METRICS = True # Enable hardware-aware metrics
 
 # --- Objectives for Hardware-Aware Search ---
@@ -90,15 +93,15 @@ else:
 
 # %%
 # --- Configuration for Part 2 ---
-N_TRIALS_HYBRID = 30
+N_TRIALS_HYBRID = 15
 EPOCHS_HYBRID = 15
-SUBSET_SIZE_HYBRID = 10000
+SUBSET_SIZE_HYBRID = 20000
 RESULTS_DIR_HYBRID = "./results/hybrid_search_tutorial"
 SEARCH_SPACE_PATH = 'hybrid_search_space.yaml'
 
 # --- Objectives for Hybrid Search (Performance vs. Cost) ---
-OBJECTIVE_NAMES_HYBRID = ['accuracy', 'bops']
-MAXIMIZE_FLAGS_HYBRID = [True, False]
+OBJECTIVE_NAMES_HYBRID = ['bops', 'performance_metric']
+MAXIMIZE_FLAGS_HYBRID = [False, True]
 OBJECTIVE_INFO_HYBRID = list(zip(OBJECTIVE_NAMES_HYBRID, MAXIMIZE_FLAGS_HYBRID))
 
 os.makedirs(RESULTS_DIR_HYBRID, exist_ok=True)
@@ -142,7 +145,7 @@ searcher_simple.search_space = search_space_simple
 
 study_simple = searcher_simple.run_search(
     model_type='block',
-    n_trials=15,
+    n_trials=N_TRIALS_HYBRID,
     epochs=EPOCHS_HYBRID,
     dataset='mnist',
     subset_size=SUBSET_SIZE_HYBRID,

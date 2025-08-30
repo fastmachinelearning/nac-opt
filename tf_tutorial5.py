@@ -31,10 +31,10 @@ tf.get_logger().setLevel('ERROR')
 
 # %%
 # --- Configuration for Global Search ---
-N_TRIALS_HYBRID = 5
+N_TRIALS_HYBRID = 15
 EPOCHS_HYBRID = 10
-SUBSET_SIZE_HYBRID = 10000
-RESULTS_DIR_HYBRID = "./results/hybrid_search_tutorial"
+SUBSET_SIZE_HYBRID = 40000
+RESULTS_DIR_HYBRID = "./results/Newhybrid_search_tutorial"
 SEARCH_SPACE_PATH = 'hybrid_search_space.yaml'
 
 # --- Objectives for Hybrid Search (Performance vs. Cost) ---
@@ -123,8 +123,8 @@ local_search_settings = {
         {'total_bits': 8, 'int_bits': 3},
         {'total_bits': 4, 'int_bits': 1},
     ],
-    'pruning_iterations': 10,
-    'epochs_per_iteration': 5,
+    'pruning_iterations': 7,
+    'epochs_per_iteration': 10,
     'pruning_rate': 0.8, # Prune 20% of remaining weights each iteration (1 - 0.8)
 }
 
@@ -160,6 +160,12 @@ else:
     print("Please ensure the global search ran successfully.")
     local_search_df = pd.DataFrame()
 
+
+
+# %%
+
+
+# %%
 
 
 
