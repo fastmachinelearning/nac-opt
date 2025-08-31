@@ -218,3 +218,90 @@ def plot_3d_pareto_front_heatmap(df, objectives_info, save_dir="."):
     fig.write_html(save_path)
     print(f"3D Pareto front plot saved to {save_path}")
     fig.show()
+
+
+
+def plot_interactive_2d_pareto(df, objective_info, save_dir="."):
+    """
+    Plots an interactive 2D Pareto front for the first two objectives using Plotly.
+    When you hover over a point, it displays the trial number and objective values.
+    """
+    if len(objective_info) < 2:
+        print("At least 2 objectives are required for a 2D Pareto plot.")
+        return
+
+    # Extract information for the first two objectives
+    obj1_info, obj2_info = objective_info[:2]
+    obj1, max1 = obj1_info
+    obj2, max2 = obj2_info
+    col1 = obj1.lower().replace(" ", "_")
+    col2 = obj2.lower().replace(" ", "_")
+
+    # Ensure the objective columns exist in the DataFrame
+    if col1 not in df.columns or col2 not in df.columns:
+        print(f"Error: Columns '{col1}' or '{col2}' not found in the DataFrame.")
+        return
+
+    # Find the Pareto optimal points for this specific 2D plot
+    pareto_indices = get_pareto_front_indices(df, [(obj1, max1), (obj2, max2)])
+    pareto_points = df.loc[pareto_indices]
+
+    # Create a copy to safely add the hover text column
+    df_plot = df.copy()
+
+    # --- Create custom hover text for each point ---
+    df_plot['hover_text'] = df_plot.apply(
+        lambda row: (
+            f"<b>Trial {int(row['trial'])}</b><br><br>"
+            f"{obj1}: {row[col1]:.4g}<br>"
+            f"{obj2}: {row[col2]:.4g}"
+        ),
+        axis=1
+    )
+
+    # --- Create the interactive plot ---
+    fig = go.Figure()
+
+    # Add a trace for ALL trial points
+    fig.add_trace(go.Scatter(
+        x=df_plot[col1],
+        y=df_plot[col2],
+        mode='markers',
+        marker=dict(size=8, opacity=0.7, color='royalblue'),
+        name='All Trials',
+        text=df_plot['hover_text'],
+        hoverinfo='text'
+    ))
+
+    # Add a trace for the PARETO FRONT points, making them stand out
+    fig.add_trace(go.Scatter(
+        x=pareto_points[col1],
+        y=pareto_points[col2],
+        mode='markers',
+        marker=dict(
+            size=12,
+            color='firebrick',
+            symbol='diamond',
+            line=dict(color='black', width=1)
+        ),
+        name='Pareto Front',
+        # Use the hover text from the corresponding points in the main dataframe
+        text=df_plot.loc[pareto_points.index]['hover_text'],
+        hoverinfo='text'
+    ))
+
+    # --- Finalize plot layout ---
+    fig.update_layout(
+        title=f"Interactive Pareto Front: {obj1} vs {obj2}",
+        xaxis_title=obj1,
+        yaxis_title=obj2,
+        yaxis_type="log",
+        template="plotly_white",
+        legend_title_text='Legend'
+    )
+
+    # --- Save the plot as an HTML file and display it ---
+    save_path = os.path.join(save_dir, "interactive_pareto_front_2d.html")
+    fig.write_html(save_path)
+    print(f"Interactive 2D Pareto front plot saved to {save_path}")
+    fig.show()

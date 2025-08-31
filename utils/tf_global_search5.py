@@ -73,6 +73,8 @@ def create_conv_block_tf(channels, kernels, activations, normalizations, name='c
         ))
         if normalizations[i] == 'batch':
             layers.append(tf.keras.layers.BatchNormalization(name=f'{name}_bn_{i}'))
+        elif normalizations[i] == 'layer':
+            layers.append(tf.keras.layers.LayerNormalization(name=f'{name}_ln_{i}'))
         if activations[i] is not None:
             layers.append(activations[i])
     return tf.keras.Sequential(layers, name=name)
@@ -185,7 +187,7 @@ class GlobalSearchTF:
             "board": "zcu102"
         }
 
-    def create_block_objective(self, x_train, y_train, x_val, y_val, epochs=10, use_hardware_metrics=False, verbose=True):
+    def create_block_objective(self, x_train, y_train, x_val, y_val, epochs=10, use_hardware_metrics=False, verbose=True, one_hot= False):
         """Creates the objective function for Optuna to optimize."""
         def objective(trial):
             try:
@@ -195,7 +197,12 @@ class GlobalSearchTF:
                 output_dim = spaces.get("output_dim", 10)
                 
                 bops = 0
-                
+
+                if one_hot:
+                    loss_function = "categorical_crossentropy"
+                else:
+                    loss_function = "sparse_categorical_crossentropy"
+
                 current_img_size = img_size
                 current_channels = x_train.shape[-1]
                 is_flattened = False
@@ -265,7 +272,6 @@ class GlobalSearchTF:
 
                 mlp_widths, mlp_act_names, mlp_norms = sample_mlp_tf(trial, in_dim, output_dim, "MLP_Head", spaces)
                 
-                # FIX: Convert activation names to layer objects before passing to the build function.
                 mlp_acts = [get_activation_tf(act) for act in mlp_act_names]
                 classifier_head = build_mlp_from_config_classifier(mlp_widths, mlp_acts, mlp_norms, name='classifier_head')
                 
@@ -278,7 +284,7 @@ class GlobalSearchTF:
                 input_shape = (img_size, img_size, x_train.shape[-1])
                 model = BlockArchitectureTF(feature_extractor_blocks, classifier_head, input_shape, needs_flattening=(not is_flattened))
                 
-                model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+                model.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
                 train_model(model, (x_train, y_train), (x_val, y_val), epochs=epochs, batch_size=128, verbose=0)
                 
                 val_metrics = evaluate_model(model, (x_val, y_val))
@@ -315,7 +321,6 @@ class GlobalSearchTF:
         """
         Calculate BOPs for MLP architecture using tf_bops utilities.
         """
-        # Note: You need to import get_MLP_bops_tf from .tf_bops at the top of the file
         return get_MLP_bops_tf(model, input_shape=(1, input_size), bit_width=bit_width)
 
     def create_mlp_objective(self, x_train, y_train, x_val, y_val, epochs=10, 
@@ -327,10 +332,14 @@ class GlobalSearchTF:
         def objective(trial):
             # This search space is specific to this simple MLP objective
             mlp_search_space = {
-                "num_layers": [2, 3], "hidden_units1": [8, 16, 32, 64, 128],
+                "num_layers": [2, 3, 4, 5], "hidden_units1": [8, 16, 32, 64, 128],
                 "activation1": ["relu", "tanh", "sigmoid"], "batchnorm1": [True, False],
                 "hidden_units2": [8, 16, 32, 64], "activation2": ["relu", "tanh", "sigmoid"],
                 "batchnorm2": [True, False],
+                "hidden_units3": [8, 16, 32], "activation3": ["relu", "tanh", "sigmoid"],
+                "batchnorm3": [True, False],
+                "hidden_units4": [8, 16], "activation4": ["relu", "tanh", "sigmoid"],
+                "batchnorm4": [True, False],
             }
 
             # Sample architecture configuration
@@ -345,6 +354,14 @@ class GlobalSearchTF:
                 config["hidden_units2"] = trial.suggest_categorical("hidden_units2", mlp_search_space["hidden_units2"])
                 config["activation2"] = trial.suggest_categorical("activation2", mlp_search_space["activation2"])
                 config["batchnorm2"] = trial.suggest_categorical("batchnorm2", mlp_search_space["batchnorm2"])
+            if num_layers >= 4:
+                config["hidden_units3"] = trial.suggest_categorical("hidden_units3", mlp_search_space["hidden_units3"])
+                config["activation3"] = trial.suggest_categorical("activation3", mlp_search_space["activation3"])
+                config["batchnorm3"] = trial.suggest_categorical("batchnorm3", mlp_search_space["batchnorm3"])
+            if num_layers >= 5:
+                config["hidden_units4"] = trial.suggest_categorical("hidden_units4", mlp_search_space["hidden_units4"])
+                config["activation4"] = trial.suggest_categorical("activation4", mlp_search_space["activation4"])
+                config["batchnorm4"] = trial.suggest_categorical("batchnorm4", mlp_search_space["batchnorm4"])
             
             input_size = x_train.shape[1]
             num_classes = y_train.shape[1]
@@ -476,7 +493,7 @@ class GlobalSearchTF:
 
     def run_search(self, model_type='block', n_trials=10, epochs=10, dataset='mnist',
                    subset_size=10000, resize_val=11, objectives=None, maximize_flags=None,
-                   use_hardware_metrics=False, verbose=True):
+                   use_hardware_metrics=False, verbose=True, one_hot=False):
         """
         Run global search.
         """
@@ -493,12 +510,21 @@ class GlobalSearchTF:
 
         # MODIFICATION: Conditional data loading based on model type
         is_mlp = (model_type == 'mlp')
-        x_train, y_train, x_val, y_val = load_and_preprocess_mnist(
+        # x_train, y_train, x_val, y_val = load_and_preprocess_mnist(
+        #     resize_val=resize_val,
+        #     subset_size=subset_size,
+        #     flatten=is_mlp,  # Flatten for MLP, not for block-based
+        #     one_hot=is_mlp   # One-hot for MLP, not for sparse cross-entropy
+        # )
+        from .tf_data_preprocessing import load_generic_dataset # <-- Add import
+        x_train, y_train, x_val, y_val = load_generic_dataset(
+            dataset_name=dataset, # <-- Use the 'dataset' parameter
             resize_val=resize_val,
             subset_size=subset_size,
-            flatten=is_mlp,  # Flatten for MLP, not for block-based
-            one_hot=is_mlp   # One-hot for MLP, not for sparse cross-entropy
+            flatten=is_mlp,
+            one_hot=is_mlp or one_hot
         )
+
 
         # MODIFICATION: Select the correct objective function
         if model_type == 'mlp':
@@ -507,7 +533,7 @@ class GlobalSearchTF:
             )
         elif model_type == 'block':
             objective = self.create_block_objective(
-                x_train, y_train, x_val, y_val, epochs, use_hardware_metrics, verbose
+                x_train, y_train, x_val, y_val, epochs, use_hardware_metrics, verbose, one_hot,
             )
         else:
             raise ValueError(f"Model type '{model_type}' not supported. Use 'mlp' or 'block'.")

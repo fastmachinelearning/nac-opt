@@ -1,8 +1,0 @@
-epochs_per_iteration: 5
-precision_pairs:
-- int_bits: 6
-  total_bits: 16
-- int_bits: 3
-  total_bits: 8
-pruning_iterations: 3
-pruning_rate: 0.8

@@ -113,8 +113,9 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
                 bias_quantizer=bias_quantizer,
                 name=f"q_{layer.name}"
             )
+            x = new_layer(x)  # <-- missing line
         elif isinstance(layer, tf.keras.layers.Conv2D):
-             new_layer = QConv2D(
+            new_layer = QConv2D(
                 filters=layer.filters,
                 kernel_size=layer.kernel_size,
                 strides=layer.strides,
@@ -123,7 +124,7 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
                 bias_quantizer=bias_quantizer,
                 name=f"q_{layer.name}"
             )
-             
+            x = new_layer(x)  # <-- missing line
         elif isinstance(layer, tf.keras.layers.Activation):
             # Match the original activation type
             if 'relu' in layer.get_config()['activation'].lower():
@@ -154,25 +155,29 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
     return qat_model
 
 
-def run_pruning_loop(model: tf.keras.Model, train_data, val_data, config: dict, precision_str: str, results_dir: str):
+def run_pruning_loop(model: tf.keras.Model, train_data, val_data, config: dict, precision_str: str, results_dir: str, log_filename: str):
     """
     Performs the iterative pruning and training loop.
-
     Args:
         model: The QAT-ready model to be pruned.
         train_data: Tuple of (x_train, y_train).
         val_data: Tuple of (x_val, y_val).
         config: Dictionary with local search settings.
         precision_str: String representation of the precision (e.g., "<8,3>").
-        results_dir: Directory to save logs and models.
+        results_dir: Directory to save models.
+        log_filename: Path to the CSV log file to append results to.
     """
     x_train, y_train = train_data
     x_val, y_val = val_data
+
+    # Automatically determine the correct loss function
+    if len(y_train.shape) > 1 and y_train.shape[1] > 1:
+        loss_function = 'categorical_crossentropy'
+        print("--- Auto-detected one-hot labels. Using 'categorical_crossentropy'. ---")
+    else:
+        loss_function = 'sparse_categorical_crossentropy'
+        print("--- Auto-detected integer labels. Using 'sparse_categorical_crossentropy'. ---")
     
-    log_filename = os.path.join(results_dir, "pruning_log.csv")
-    if not os.path.exists(log_filename):
-        with open(log_filename, "w") as log_file:
-            log_file.write("Precision,Iteration,Sparsity,Accuracy\n")
 
     # Save initial weights for lottery ticket rewinding
     original_weights = model.get_weights()
@@ -183,17 +188,11 @@ def run_pruning_loop(model: tf.keras.Model, train_data, val_data, config: dict, 
     best_weights = None
     
     # Compile the base model once
-    model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
 
     for iteration in range(num_iterations):
         target_sparsity = 1 - (config['pruning_rate'] ** (iteration + 1))
         print(f"\n--- Pruning Iteration {iteration+1}/{num_iterations} | Target Sparsity: {target_sparsity:.4f} ---")
-
-        # pruning_params = {
-        #     'pruning_schedule': tfmot.sparsity.keras.ConstantSparsity(
-        #         target_sparsity=target_sparsity, begin_step=0, frequency=100
-        #     )
-        # }
 
         pruning_params = {
             'pruning_schedule': tfmot.sparsity.keras.PolynomialDecay(
@@ -209,7 +208,7 @@ def run_pruning_loop(model: tf.keras.Model, train_data, val_data, config: dict, 
         model_to_prune.set_weights(model.get_weights())
         pruned_model = tfmot.sparsity.keras.prune_low_magnitude(model_to_prune, **pruning_params)
         
-        pruned_model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+        pruned_model.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
         
         callbacks = [tfmot.sparsity.keras.UpdatePruningStep()]
         
@@ -222,11 +221,12 @@ def run_pruning_loop(model: tf.keras.Model, train_data, val_data, config: dict, 
         
         # Strip pruning wrappers to evaluate and save
         model_stripped = tfmot.sparsity.keras.strip_pruning(pruned_model)
-        model_stripped.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+        model_stripped.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
         
         _, val_acc = model_stripped.evaluate(x_val, y_val, verbose=0)
         print(f"Iteration {iteration+1} Accuracy: {val_acc:.4f}")
         
+        # This now appends to the file created in the entrypoint function
         with open(log_filename, "a") as log_file:
             log_file.write(f"{precision_str},{iteration+1},{target_sparsity:.4f},{val_acc:.4f}\n")
         
@@ -236,14 +236,12 @@ def run_pruning_loop(model: tf.keras.Model, train_data, val_data, config: dict, 
             print(f"--> New best accuracy for this precision: {best_val_accuracy:.4f}")
 
         # Rewind weights of the base model for the next iteration
-        # This is a key part of the "Lottery Ticket Hypothesis" methodology
         current_mask = [np.where(w != 0, 1.0, 0.0) for w in model_stripped.get_weights()]
         rewound_weights = [orig * mask for orig, mask in zip(original_weights, current_mask)]
         model.set_weights(rewound_weights)
 
     if best_weights is not None:
         model.set_weights(best_weights)
-        # Assuming total_bits is available in scope for filename
         total_bits = int(precision_str.split(',')[0].replace('<',''))
         save_path = os.path.join(results_dir, f"best_model_q{total_bits}b.h5")
         model.save(save_path)
@@ -257,7 +255,6 @@ def run_pruning_loop(model: tf.keras.Model, train_data, val_data, config: dict, 
 def local_search_entrypoint(architecture_yaml_path: str, local_search_config_path: str, dataset, results_dir: str):
     """
     Main entrypoint for the local search stage.
-
     Args:
         architecture_yaml_path: Path to the model architecture YAML.
         local_search_config_path: Path to the local search settings YAML.
@@ -280,6 +277,10 @@ def local_search_entrypoint(architecture_yaml_path: str, local_search_config_pat
     # Load the base model from the global search result
     base_model = load_model_from_yaml(architecture_yaml_path)
 
+    log_filename = os.path.join(results_dir, "pruning_log.csv")
+    with open(log_filename, "w") as log_file:
+        log_file.write("Precision,Iteration,Sparsity,Accuracy\n")
+
     results = {}
     # Loop through each precision pair defined in the config
     for precision in config['precision_pairs']:
@@ -298,7 +299,8 @@ def local_search_entrypoint(architecture_yaml_path: str, local_search_config_pat
             val_data=(x_val, y_val),
             config=config,
             precision_str=precision_str,
-            results_dir=results_dir
+            results_dir=results_dir,
+            log_filename=log_filename  # FIX: Pass the log file path to the loop function
         )
         results[precision_str] = best_acc
 

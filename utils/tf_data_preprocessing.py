@@ -69,6 +69,57 @@ def load_and_preprocess_mnist(resize_val=8, subset_size=None, normalize=True, fl
     
     return x_train, y_train, x_val, y_val
 
+def load_and_preprocess_fashion_mnist(resize_val=8, subset_size=None, normalize=True, flatten=True, one_hot=True):
+    """
+    Loads and preprocesses Fashion MNIST dataset.
+    """
+    from tensorflow.keras.datasets import fashion_mnist
+    (x_train_full, y_train_full), (x_val_full, y_val_full) = fashion_mnist.load_data()
+
+    # Expand dims: (num_samples, 28, 28) -> (num_samples, 28, 28, 1)
+    x_train_full = x_train_full[..., None]
+    x_val_full = x_val_full[..., None]
+    
+    # Resize images if needed
+    if resize_val != 28:
+        x_train_full = tf.image.resize(x_train_full, [resize_val, resize_val]).numpy()
+        x_val_full = tf.image.resize(x_val_full, [resize_val, resize_val]).numpy()
+    
+    # Normalize pixel values
+    if normalize:
+        x_train_full = x_train_full.astype("float32") / 255.0
+        x_val_full = x_val_full.astype("float32") / 255.0
+    
+    # Flatten images if requested
+    if flatten:
+        flat_size = resize_val ** 2
+        x_train_full = x_train_full.reshape(-1, flat_size)
+        x_val_full = x_val_full.reshape(-1, flat_size)
+    
+    # One-hot encode labels if requested
+    if one_hot:
+        num_classes = 10
+        y_train_full = to_categorical(y_train_full, num_classes)
+        y_val_full = to_categorical(y_val_full, num_classes)
+    
+    # Subset data if specified
+    if subset_size is not None:
+        x_train = x_train_full[:subset_size]
+        y_train = y_train_full[:subset_size]
+        x_val = x_val_full[:subset_size]
+        y_val = y_val_full[:subset_size]
+    else:
+        x_train, y_train = x_train_full, y_train_full
+        x_val, y_val = x_val_full, y_val_full
+    
+    print(f"Data loaded and preprocessed:")
+    print(f"  Resize: {resize_val}x{resize_val}")
+    print(f"  x_train shape: {x_train.shape}, x_val shape: {x_val.shape}")
+    print(f"  y_train shape: {y_train.shape}, y_val shape: {y_val.shape}")
+
+    return x_train, y_train, x_val, y_val
+    
+
 
 def create_tf_dataset(x_data, y_data, batch_size=32, shuffle=True, buffer_size=10000):
     """
@@ -110,7 +161,7 @@ def load_generic_dataset(dataset_name, **kwargs):
         'mnist': load_and_preprocess_mnist,
         # Add more datasets here as needed
         # 'cifar10': load_and_preprocess_cifar10,
-        # 'fashion_mnist': load_and_preprocess_fashion_mnist,
+        'fashion_mnist': load_and_preprocess_fashion_mnist,
     }
     
     if dataset_name not in loaders:
