@@ -80,42 +80,111 @@ def load_model_from_yaml(yaml_path: str) -> tf.keras.Model:
     return model_wrapper.model
 
 
-def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) -> tf.keras.Model:
-    """
-    Converts a standard Keras model to a QKeras model for QAT.
+# def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) -> tf.keras.Model:
+#     """
+#     Converts a standard Keras model to a QKeras model for QAT.
 
-    Args:
-        model: The input Keras model.
-        total_bits: Total bits for quantization.
-        int_bits: Integer bits for quantization.
+#     Args:
+#         model: The input Keras model.
+#         total_bits: Total bits for quantization.
+#         int_bits: Integer bits for quantization.
 
-    Returns:
-        A new model with QKeras layers.
-    """
-    weight_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
-    bias_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
-    # activation_quantizer = quantizers.quantized_relu(total_bits, int_bits)
+#     Returns:
+#         A new model with QKeras layers.
+#     """
+#     weight_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
+#     bias_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
+#     # activation_quantizer = quantizers.quantized_relu(total_bits, int_bits)
 
-    # Create a new functional model by iterating through the layers of the original model
-    input_layer = model.inputs[0]
-    x = input_layer
-    layer_map = {}
+#     # Create a new functional model by iterating through the layers of the original model
+#     input_layer = model.inputs[0]
+#     x = input_layer
+#     layer_map = {}
     
 
-    layer_map[model.layers[0].name] = input_layer
+#     layer_map[model.layers[0].name] = input_layer
 
 
-    for layer in model.layers[1:]: # Skip original input layer
-        if isinstance(layer, tf.keras.layers.Dense):
-            new_layer = QDense(
+#     for layer in model.layers[1:]: # Skip original input layer
+#         if isinstance(layer, tf.keras.layers.Dense):
+#             new_layer = QDense(
+#                 units=layer.units,
+#                 kernel_quantizer=weight_quantizer,
+#                 bias_quantizer=bias_quantizer,
+#                 name=f"q_{layer.name}"
+#             )
+#             x = new_layer(x)  # <-- missing line
+#         elif isinstance(layer, tf.keras.layers.Conv2D):
+#             new_layer = QConv2D(
+#                 filters=layer.filters,
+#                 kernel_size=layer.kernel_size,
+#                 strides=layer.strides,
+#                 padding=layer.padding,
+#                 kernel_quantizer=weight_quantizer,
+#                 bias_quantizer=bias_quantizer,
+#                 name=f"q_{layer.name}"
+#             )
+#             x = new_layer(x)  # <-- missing line
+#         elif isinstance(layer, tf.keras.layers.Activation):
+#             # Match the original activation type
+#             if 'relu' in layer.get_config()['activation'].lower():
+#                 activation_quantizer = quantizers.quantized_relu(total_bits, int_bits)
+#             elif 'linear' in layer.get_config()['activation'].lower():
+#                 # Don't quantize linear activations
+#                 x = layer(x)
+#                 continue
+#             else:
+#                 # For GELU, tanh, etc., use quantized_bits which preserves the range
+#                 activation_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
+            
+#             x = QActivation(activation=activation_quantizer, name=f"q_{layer.name}")(x)
+
+#         else:
+#             # Keep other layers as-is (Flatten, BatchNorm, etc.)
+#             config = layer.get_config()
+#             config['name'] = f"clone_{layer.name}"
+#             new_layer = layer.__class__.from_config(config)
+#             x = new_layer(x)
+#             # Transfer weights if applicable
+#             if layer.weights:
+#                 new_layer.set_weights(layer.get_weights())
+
+#     qat_model = tf.keras.Model(inputs=input_layer, outputs=x, name=f"qat_model_{total_bits}b")
+#     print(f"--- Converted to QAT model with <{total_bits},{int_bits}> precision ---")
+#     qat_model.summary()
+#     return qat_model
+
+def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) -> tf.keras.Model:
+    """Fixed version that handles nested models and transfers weights"""
+    
+    weight_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
+    bias_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
+    
+    def convert_layer(layer):
+        """Recursively convert layers, handling nested models"""
+        if isinstance(layer, tf.keras.Sequential):
+            # Handle Sequential blocks
+            converted_layers = []
+            for sublayer in layer.layers:
+                converted_layers.append(convert_layer(sublayer))
+            return tf.keras.Sequential(converted_layers, name=f"q_{layer.name}")
+            
+        elif isinstance(layer, tf.keras.layers.Dense):
+            # Create QDense and transfer weights
+            q_layer = QDense(
                 units=layer.units,
                 kernel_quantizer=weight_quantizer,
                 bias_quantizer=bias_quantizer,
                 name=f"q_{layer.name}"
             )
-            x = new_layer(x)  # <-- missing line
+            # Build and transfer weights
+            q_layer.build(layer.input_shape)
+            q_layer.set_weights(layer.get_weights())
+            return q_layer
+            
         elif isinstance(layer, tf.keras.layers.Conv2D):
-            new_layer = QConv2D(
+            # Create QConv2D and transfer weights
+            q_layer = QConv2D(
                 filters=layer.filters,
                 kernel_size=layer.kernel_size,
                 strides=layer.strides,
@@ -124,34 +193,35 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
                 bias_quantizer=bias_quantizer,
                 name=f"q_{layer.name}"
             )
-            x = new_layer(x)  # <-- missing line
-        elif isinstance(layer, tf.keras.layers.Activation):
-            # Match the original activation type
-            if 'relu' in layer.get_config()['activation'].lower():
-                activation_quantizer = quantizers.quantized_relu(total_bits, int_bits)
-            elif 'linear' in layer.get_config()['activation'].lower():
-                # Don't quantize linear activations
-                x = layer(x)
-                continue
-            else:
-                # For GELU, tanh, etc., use quantized_bits which preserves the range
-                activation_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
+            q_layer.build(layer.input_shape)
+            q_layer.set_weights(layer.get_weights())
+            return q_layer
             
-            x = QActivation(activation=activation_quantizer, name=f"q_{layer.name}")(x)
-
+        elif isinstance(layer, tf.keras.layers.Activation):
+            # Handle activations with appropriate quantizers
+            act_config = layer.get_config()['activation']
+            if 'relu' in str(act_config).lower():
+                return QActivation(quantizers.quantized_relu(total_bits, int_bits), 
+                                 name=f"q_{layer.name}")
+            elif 'linear' in str(act_config).lower():
+                return layer  # Keep linear as-is
+            else:
+                return QActivation(quantizers.quantized_bits(total_bits, int_bits, alpha=1),
+                                 name=f"q_{layer.name}")
         else:
-            # Keep other layers as-is (Flatten, BatchNorm, etc.)
-            config = layer.get_config()
-            config['name'] = f"clone_{layer.name}"
-            new_layer = layer.__class__.from_config(config)
-            x = new_layer(x)
-            # Transfer weights if applicable
-            if layer.weights:
-                new_layer.set_weights(layer.get_weights())
-
-    qat_model = tf.keras.Model(inputs=input_layer, outputs=x, name=f"qat_model_{total_bits}b")
-    print(f"--- Converted to QAT model with <{total_bits},{int_bits}> precision ---")
-    qat_model.summary()
+            # Keep other layers (BatchNorm, Flatten, etc.) as-is
+            return layer
+    
+    # Rebuild model with converted layers
+    input_layer = model.input
+    x = input_layer
+    
+    for layer in model.layers[1:]:
+        converted = convert_layer(layer)
+        x = converted(x)
+    
+    qat_model = tf.keras.Model(inputs=input_layer, outputs=x, 
+                              name=f"qat_model_{total_bits}b")
     return qat_model
 
 

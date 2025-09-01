@@ -1,4 +1,7 @@
 # %%
+!pip install -q seaborn
+
+# %%
 # Basic imports and setup
 import os
 import yaml
@@ -10,11 +13,14 @@ import matplotlib.pyplot as plt
 # Import SNAC-pack utilities
 from utils.tf_global_search5 import run_mlp_search
 from utils.tf_visualization import plot_pareto_fronts, plot_3d_pareto_front_heatmap
-from utils.tf_local_search1 import local_search_entrypoint
+from utils.tf_local_search_separated import local_search_entrypoint
+# from utils.tf_local_search2 import local_search_entrypoint
 from utils.tf_data_preprocessing import load_and_preprocess_mnist
+import seaborn as sns
 
-np.random.seed(42)
-tf.random.set_seed(42)
+
+# np.random.seed(42)
+# tf.random.set_seed(42)
 
 # Plotting settings and TF logging
 %matplotlib inline
@@ -23,7 +29,7 @@ tf.get_logger().setLevel('ERROR')
 print("TensorFlow Version:", tf.__version__)
 
 # --- Configuration ---
-N_TRIALS_MLP = 15 # Note: Increase for a real search, 15 is for a quick demo
+N_TRIALS_MLP = 5 # Note: Increase for a real search, 15 is for a quick demo
 EPOCHS_MLP = 10
 SUBSET_SIZE_MLP = 10000
 RESULTS_DIR_MLP = "./results/tutorial1_MLP_Hardware_Aware"
@@ -123,44 +129,64 @@ else:
 # 
 
 # %%
+# Basic imports and setup
+import os
+import yaml
+import tensorflow as tf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
 
-# --- Configuration for Local Search ---
-LOCAL_SEARCH_RESULTS_DIR = os.path.join(RESULTS_DIR_MLP, "local_search")
-LOCAL_SEARCH_CONFIG_PATH = os.path.join(RESULTS_DIR_MLP, 'local_search_settings.yaml')
+# Import SNAC-pack utilities
+from utils.tf_global_search5 import run_mlp_search
+from utils.tf_visualization import plot_pareto_fronts, plot_3d_pareto_front_heatmap
+from utils.tf_local_search_separated import local_search_entrypoint
+from utils.tf_data_preprocessing import load_and_preprocess_mnist
 
-# Define settings for QAT (precisions) and pruning
+
+RESULTS_DIR_MLP = "./results/tutorial1_MLP_Hardware_Aware"
+SUBSET_SIZE_MLP = 20000
+
+
+# %%
+# --- NEW: Configuration for Separated Local Search ---
+LOCAL_SEARCH_RESULTS_DIR = os.path.join(RESULTS_DIR_MLP, "local_search_separated")
+LOCAL_SEARCH_CONFIG_PATH = os.path.join(RESULTS_DIR_MLP, 'local_search_settings_separated.yaml')
+
+# Define settings with distinct sections for pruning and QAT
 local_search_settings = {
-    'precision_pairs': [
-        {'total_bits': 16, 'int_bits': 6},
-        {'total_bits': 8, 'int_bits': 3},
-        {'total_bits': 4, 'int_bits': 1},
-    ],
-    'pruning_iterations': 5,
-    'epochs_per_iteration': 8,
-    'pruning_rate': 0.8, # Prune 20% of remaining weights each iteration (1 - 0.8)
+    'pruning_settings': {
+        'iterations': 8,
+        'epochs_per_iteration': 5,
+        'pruning_rate': 0.8, # Prune 20% of remaining weights each iteration
+    },
+    'qat_settings': {
+        'epochs': 15, # Epochs to fine-tune each quantized model
+        'precision_pairs': [
+            {'total_bits': 16, 'int_bits': 6},
+            {'total_bits': 8, 'int_bits': 3},
+            {'total_bits': 6, 'int_bits': 2},
+            {'total_bits': 4, 'int_bits': 1},
+        ]
+    }
 }
 
-# Write the settings to a YAML file
+# Write the new settings to a YAML file
 with open(LOCAL_SEARCH_CONFIG_PATH, 'w') as f:
     yaml.dump(local_search_settings, f)
-print(f"Created local search configuration file: {LOCAL_SEARCH_CONFIG_PATH}")
+print(f"Created separated local search configuration file: {LOCAL_SEARCH_CONFIG_PATH}")
 
 # Path to the best model found by the global search
 ARCHITECTURE_YAML_PATH = os.path.join(RESULTS_DIR_MLP, "best_model_for_local_search.yaml")
 
-
 # --- Load Dataset for Local Search ---
-resize_val = 8 
 x_train, y_train, x_val, y_val = load_and_preprocess_mnist(
-    resize_val=resize_val, 
-    subset_size=SUBSET_SIZE_MLP, 
-    flatten=False,
-    one_hot=True
+    resize_val=8, subset_size=SUBSET_SIZE_MLP, flatten=False, one_hot=True
 )
 
-# --- Run the Local Search ---
+# --- Run the Separated Local Search ---
 if os.path.exists(ARCHITECTURE_YAML_PATH):
-    local_search_df = local_search_entrypoint(
+    pruning_results_df, qat_results_df = local_search_entrypoint(
         architecture_yaml_path=ARCHITECTURE_YAML_PATH,
         local_search_config_path=LOCAL_SEARCH_CONFIG_PATH,
         dataset=(x_train, y_train, x_val, y_val),
@@ -168,85 +194,45 @@ if os.path.exists(ARCHITECTURE_YAML_PATH):
     )
 else:
     print(f"ERROR: Could not find the architecture file: {ARCHITECTURE_YAML_PATH}")
-    local_search_df = pd.DataFrame()
-
-# %% [markdown]
-# ## Analyzing the Local Search Results
-# 
-# The local search has finished. Let's plot the results from the pruning log to see how accuracy holds up as we increase sparsity for different quantization levels.
-# 
+    pruning_results_df, qat_results_df = pd.DataFrame(), pd.DataFrame()
 
 # %%
-# if not local_search_df.empty:
-#     plt.figure(figsize=(10, 6))
-    
-#     # Define distinct colors and markers
-#     colors = ['blue', 'red']
-#     markers = ['o', 's']  # circle and square
-    
-#     precisions = local_search_df['Precision'].unique()
-#     # print(f"Found precisions: {precisions}")
-#     # print(f"Data shape: {local_search_df.shape}")
-    
-#     for i, prec in enumerate(precisions):
-#         subset = local_search_df[local_search_df['Precision'] == prec]
-#         print(f"Precision {prec}: {len(subset)} data points")
-#         print(subset[['Iteration', 'Sparsity', 'Accuracy']].to_string())
-        
-#         plt.plot(subset['Sparsity'], subset['Accuracy'], 
-#                 marker=markers[i], linestyle='-', 
-#                 color=colors[i], linewidth=2,
-#                 markersize=8, label=f'Precision {prec}')
-    
-#     plt.title('Accuracy vs. Sparsity during Local Search')
-#     plt.xlabel('Model Sparsity')
-#     plt.ylabel('Validation Accuracy')
-#     plt.legend()
-#     plt.grid(True, alpha=0.3)
-#     plt.show()
-# else:
-#     print("Local search did not produce results to analyze.")
-
-
-
-if 'local_search_df' in locals() and not local_search_df.empty:
-    plt.figure(figsize=(12, 7))
-    
-    # Define distinct colors and markers for better readability
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'] # Blue, Orange, Green, Red
-    markers = ['o', 's', '^', 'D']  # Circle, Square, Triangle, Diamond
-    
-    # Get the unique precision levels from the results
-    precisions = local_search_df['Precision'].unique()
-    
-    # Plot a separate, styled line for each precision
-    for i, prec in enumerate(precisions):
-        subset = local_search_df[local_search_df['Precision'] == prec]
-        
-        # Sort by sparsity to ensure the line is drawn correctly
-        subset = subset.sort_values(by='Sparsity')
-        
-        plt.plot(subset['Sparsity'], subset['Accuracy'], 
-                 marker=markers[i % len(markers)],  # Cycle through markers
-                 linestyle='-', 
-                 color=colors[i % len(colors)],    # Cycle through colors
-                 linewidth=2,
-                 markersize=8, 
-                 label=f'Precision {prec}')
-
-    plt.title('Accuracy vs. Sparsity Across Different Precisions', fontsize=16)
-    plt.xlabel('Model Sparsity', fontsize=12)
+# --- Plot 1: Pruning Results (Accuracy vs. Sparsity) ---
+if 'pruning_results_df' in locals() and not pruning_results_df.empty:
+    plt.figure(figsize=(10, 6))
+    plt.plot(pruning_results_df['Sparsity'], pruning_results_df['Accuracy'], 
+             marker='o', linestyle='-', color='#1f77b4', linewidth=2, markersize=8)
+    plt.title('Pruning Experiment: Accuracy vs. Model Sparsity', fontsize=16)
+    plt.xlabel('Model Sparsity (Fraction of Zero-Value Weights)', fontsize=12)
     plt.ylabel('Validation Accuracy', fontsize=12)
-    plt.legend(title="Quantization Level", fontsize=10)
     plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-    plt.ylim(bottom=max(0, local_search_df['Accuracy'].min() - 0.05)) # Adjust y-axis to focus on results
+    plt.ylim(bottom=max(0, pruning_results_df['Accuracy'].min() - 0.05))
     plt.tight_layout()
     plt.show()
 else:
-    print("Local search did not produce results to analyze.")
+    print("Pruning experiment did not produce results to analyze.")
 
+# --- Plot 2: QAT Results (Accuracy per Precision) ---
+if 'qat_results_df' in locals() and not qat_results_df.empty:
+    plt.figure(figsize=(10, 6))
+    
+    # Get the baseline accuracy from the first pruning iteration (0% sparsity) if available
+    baseline_acc = pruning_results_df['Accuracy'].iloc[0] if not pruning_results_df.empty else None
 
-# %% [markdown]
-# The h5 file is saved HERE and use that to then synthesize with hls4ml
+    # Create the bar plot
+    palette = sns.color_palette("viridis", n_colors=len(qat_results_df))
+    sns.barplot(x='Precision', y='Accuracy', data=qat_results_df, palette=palette)
+    
+    if baseline_acc:
+        plt.axhline(y=baseline_acc, color='r', linestyle='--', linewidth=2, label=f'FP32 Baseline Acc ({baseline_acc:.4f})')
+        plt.legend()
 
-
+    plt.title('QAT Experiment: Final Accuracy vs. Precision', fontsize=16)
+    plt.xlabel('Quantization Precision (<Total Bits, Integer Bits>)', fontsize=12)
+    plt.ylabel('Validation Accuracy', fontsize=12)
+    plt.ylim(bottom=max(0, qat_results_df['Accuracy'].min() - 0.05))
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("QAT experiment did not produce results to analyze.")

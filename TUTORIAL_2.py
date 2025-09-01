@@ -25,18 +25,17 @@ import matplotlib.pyplot as plt
 # Import SNAC-pack utilities
 from utils.tf_global_search5 import GlobalSearchTF
 from utils.tf_visualization import plot_interactive_2d_pareto
-from utils.tf_local_search1 import local_search_entrypoint
+from utils.tf_local_search_separated import local_search_entrypoint
 from utils.tf_data_preprocessing import load_and_preprocess_mnist
 from utils.tf_data_preprocessing import load_and_preprocess_fashion_mnist
+import seaborn as sns
 
-np.random.seed(42)
-tf.random.set_seed(42)
 
 
 # --- Configuration ---
-N_TRIALS_HYBRID = 15 # Note: Increase for a real search
-EPOCHS_HYBRID = 15
-SUBSET_SIZE_HYBRID = 30000
+N_TRIALS_HYBRID = 6 # Note: Increase for a real search
+EPOCHS_HYBRID = 10
+SUBSET_SIZE_HYBRID = 20000
 RESULTS_DIR_HYBRID = "./results/tutorial2_Hybrid_Discovery"
 SEARCH_SPACE_PATH = 'hybrid_search_space.yaml'
 RESIZE_VAL = 16
@@ -72,12 +71,23 @@ plt.show()
 # %%
 
 # --- Create the YAML configuration file for the hybrid search ---
+# search_space_yaml = """
+# channel_space: [8, 16, 32]
+# mlp_width_space: [32, 64, 128]
+# kernel_space: [1, 3, 5]
+# act_space: ["ReLU", "GELU", "LeakyRelu"]
+# norm_space: [null, "batch", "layer"]
+# block_types: ["Conv", "MLP", "None"]
+# num_blocks: 4
+# initial_img_size: 16
+# output_dim: 10
+# """
 search_space_yaml = """
 channel_space: [8, 16, 32]
 mlp_width_space: [32, 64, 128]
 kernel_space: [1, 3, 5]
-act_space: ["ReLU", "GELU", "LeakyRelu"]
-norm_space: [null, "batch", "layer"]
+act_space: ["ReLU","GELU", "LeakyRelu" ]
+norm_space: [null]
 block_types: ["Conv", "MLP", "None"]
 num_blocks: 8
 initial_img_size: 16
@@ -159,31 +169,68 @@ else:
 
 # %%
 
-# --- Configuration for Local Search ---
-LOCAL_SEARCH_RESULTS_DIR = os.path.join(RESULTS_DIR_HYBRID, "local_search")
-LOCAL_SEARCH_CONFIG_PATH = os.path.join(RESULTS_DIR_HYBRID, 'local_search_settings.yaml')
+# Basic imports and setup
+import os
+import yaml
 
-# Define settings for QAT and pruning
+import tensorflow as tf
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Import SNAC-pack utilities
+from utils.tf_global_search5 import GlobalSearchTF
+from utils.tf_visualization import plot_interactive_2d_pareto
+from utils.tf_local_search_separated import local_search_entrypoint
+from utils.tf_data_preprocessing import load_and_preprocess_mnist
+from utils.tf_data_preprocessing import load_and_preprocess_fashion_mnist
+import seaborn as sns
+
+
+
+# --- Configuration ---
+N_TRIALS_HYBRID = 6 # Note: Increase for a real search
+EPOCHS_HYBRID = 10
+SUBSET_SIZE_HYBRID = 20000
+RESULTS_DIR_HYBRID = "./results/tutorial2_Hybrid_Discovery"
+SEARCH_SPACE_PATH = 'hybrid_search_space.yaml'
+RESIZE_VAL = 16
+
+os.makedirs(RESULTS_DIR_HYBRID, exist_ok=True)
+
+# %%
+# --- Configuration for Separated Local Search ---
+LOCAL_SEARCH_RESULTS_DIR = os.path.join(RESULTS_DIR_HYBRID, "local_search_separated")
+LOCAL_SEARCH_CONFIG_PATH = os.path.join(RESULTS_DIR_HYBRID, 'local_search_settings_separated.yaml')
+
+# Define settings with distinct sections for pruning and QAT
 local_search_settings = {
-    'precision_pairs': [
-        {'total_bits': 16, 'int_bits': 6},
-        {'total_bits': 8, 'int_bits': 3},
-        {'total_bits': 4, 'int_bits': 1},
-    ],
-    'pruning_iterations': 5,
-    'epochs_per_iteration': 5,
-    'pruning_rate': 0.8,
+    'pruning_settings': {
+        'iterations': 5,
+        'epochs_per_iteration': 5,
+        'pruning_rate': 0.8,
+    },
+    'qat_settings': {
+        'epochs': 10, # Epochs to fine-tune each quantized model
+        'precision_pairs': [
+            {'total_bits': 16, 'int_bits': 6},
+            {'total_bits': 8, 'int_bits': 3},
+            {'total_bits': 4, 'int_bits': 1},
+        ]
+    }
 }
 
-# Write the settings to a YAML file
+# Write the new settings to a YAML file
 with open(LOCAL_SEARCH_CONFIG_PATH, 'w') as f:
     yaml.dump(local_search_settings, f)
-print(f"Created local search configuration file: {LOCAL_SEARCH_CONFIG_PATH}")
+print(f"Created separated local search configuration file: {LOCAL_SEARCH_CONFIG_PATH}")
 
 # Path to the best model found by the global search
 ARCHITECTURE_YAML_PATH = os.path.join(RESULTS_DIR_HYBRID, "best_model_for_local_search.yaml")
 
 # --- Load Dataset for Local Search ---
+searcher_hybrid = GlobalSearchTF(search_space_path=SEARCH_SPACE_PATH, results_dir=RESULTS_DIR_HYBRID)
+
 resize_val = searcher_hybrid.search_space.get('initial_img_size', 11)
 x_train, y_train, x_val, y_val = load_and_preprocess_fashion_mnist(
     resize_val=resize_val, 
@@ -192,9 +239,10 @@ x_train, y_train, x_val, y_val = load_and_preprocess_fashion_mnist(
     one_hot=True
 )
 
-# --- Run the Local Search ---
+# --- Run the Separated Local Search ---
 if os.path.exists(ARCHITECTURE_YAML_PATH):
-    local_search_df_hybrid = local_search_entrypoint(
+    # Note the new function call and the two returned DataFrames
+    pruning_results_df_hybrid, qat_results_df_hybrid = local_search_entrypoint(
         architecture_yaml_path=ARCHITECTURE_YAML_PATH,
         local_search_config_path=LOCAL_SEARCH_CONFIG_PATH,
         dataset=(x_train, y_train, x_val, y_val),
@@ -202,81 +250,47 @@ if os.path.exists(ARCHITECTURE_YAML_PATH):
     )
 else:
     print(f"ERROR: Could not find the architecture file: {ARCHITECTURE_YAML_PATH}")
-    local_search_df_hybrid = pd.DataFrame()
-
-# %% [markdown]
-# ## Analyzing the Local Search Results
-# 
-# Finally, let's visualize the accuracy/sparsity trade-off for our discovered and compressed model.
-# 
+    pruning_results_df_hybrid, qat_results_df_hybrid = pd.DataFrame(), pd.DataFrame()
 
 # %%
-if not local_search_df_hybrid.empty:
+
+# --- Plot 1: Pruning Results (Accuracy vs. Sparsity) ---
+if 'pruning_results_df_hybrid' in locals() and not pruning_results_df_hybrid.empty:
     plt.figure(figsize=(10, 6))
-    
-    # Define distinct colors and markers
-    colors = ['blue', 'red']
-    markers = ['o', 's']  # circle and square
-    
-    precisions = local_search_df_hybrid['Precision'].unique()
-    # print(f"Found precisions: {precisions}")
-    # print(f"Data shape: {local_search_df.shape}")
-    
-    for i, prec in enumerate(precisions):
-        subset = local_search_df_hybrid[local_search_df_hybrid['Precision'] == prec]
-        print(f"Precision {prec}: {len(subset)} data points")
-        print(subset[['Iteration', 'Sparsity', 'Accuracy']].to_string())
-        
-        plt.plot(subset['Sparsity'], subset['Accuracy'], 
-                marker=markers[i], linestyle='-', 
-                color=colors[i], linewidth=2,
-                markersize=8, label=f'Precision {prec}')
-    
-    plt.title('Accuracy vs. Sparsity during Local Search')
-    plt.xlabel('Model Sparsity')
-    plt.ylabel('Validation Accuracy')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    plt.show()
-else:
-    print("Local search did not produce results to analyze.")
-
-
-# %%
-if 'local_search_df_hybrid' in locals() and not local_search_df_hybrid.empty:
-    plt.figure(figsize=(12, 7))
-    
-    # Define distinct colors and markers for better readability
-    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728'] # Blue, Orange, Green, Red
-    markers = ['o', 's', '^', 'D']  # Circle, Square, Triangle, Diamond
-    
-    # Get the unique precision levels from the results
-    precisions = local_search_df_hybrid['Precision'].unique()
-    
-    # Plot a separate, styled line for each precision
-    for i, prec in enumerate(precisions):
-        subset = local_search_df_hybrid[local_search_df_hybrid['Precision'] == prec]
-        
-        # Sort by sparsity to ensure the line is drawn correctly
-        subset = subset.sort_values(by='Sparsity')
-        
-        plt.plot(subset['Sparsity'], subset['Accuracy'], 
-                 marker=markers[i % len(markers)],  # Cycle through markers
-                 linestyle='-', 
-                 color=colors[i % len(colors)],    # Cycle through colors
-                 linewidth=2,
-                 markersize=8, 
-                 label=f'Precision {prec}')
-
-    plt.title('Accuracy vs. Sparsity Across Different Precisions', fontsize=16)
-    plt.xlabel('Model Sparsity', fontsize=12)
+    plt.plot(pruning_results_df_hybrid['Sparsity'], pruning_results_df_hybrid['Accuracy'], 
+             marker='o', linestyle='-', color='#1f77b4', linewidth=2, markersize=8)
+    plt.title('Pruning Experiment: Accuracy vs. Model Sparsity', fontsize=16)
+    plt.xlabel('Model Sparsity (Fraction of Zero-Value Weights)', fontsize=12)
     plt.ylabel('Validation Accuracy', fontsize=12)
-    plt.legend(title="Quantization Level", fontsize=10)
     plt.grid(True, which='both', linestyle='--', linewidth=0.5)
-    # plt.ylim(bottom=max(0, local_search_df_hybrid['Accuracy'].min() - 0.05)) # Adjust y-axis to focus on results
+    plt.ylim(bottom=max(0, pruning_results_df_hybrid['Accuracy'].min() - 0.05))
     plt.tight_layout()
     plt.show()
 else:
-    print("Local search did not produce results to analyze.")
+    print("Pruning experiment did not produce results to analyze.")
 
+# --- Plot 2: QAT Results (Accuracy per Precision) ---
+if 'qat_results_df_hybrid' in locals() and not qat_results_df_hybrid.empty:
+    plt.figure(figsize=(10, 6))
+    
+    # Get the baseline accuracy from the first pruning iteration (0% sparsity) if available
+    baseline_acc = pruning_results_df_hybrid['Accuracy'].iloc[0] if not pruning_results_df_hybrid.empty else None
 
+    # Create the bar plot
+    import seaborn as sns
+    palette = sns.color_palette("viridis", n_colors=len(qat_results_df_hybrid))
+    sns.barplot(x='Precision', y='Accuracy', data=qat_results_df_hybrid, palette=palette)
+    
+    if baseline_acc:
+        plt.axhline(y=baseline_acc, color='r', linestyle='--', linewidth=2, label=f'FP32 Baseline Acc ({baseline_acc:.4f})')
+        plt.legend()
+
+    plt.title('QAT Experiment: Final Accuracy vs. Precision', fontsize=16)
+    plt.xlabel('Quantization Precision (<Total Bits, Integer Bits>)', fontsize=12)
+    plt.ylabel('Validation Accuracy', fontsize=12)
+    plt.ylim(bottom=max(0, qat_results_df_hybrid['Accuracy'].min() - 0.05))
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("QAT experiment did not produce results to analyze.")
