@@ -96,8 +96,20 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
             for key in ['kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']: config.pop(key, None)
             config['kernel_quantizer'], config['bias_quantizer'] = weight_quantizer, bias_quantizer
             return QDense.from_config(config)
-        if isinstance(layer, tf.keras.layers.Activation) and 'relu' in config['activation']:
-            return QActivation(activation=quantizers.quantized_relu(total_bits, int_bits))
+        # if isinstance(layer, tf.keras.layers.Activation) and 'relu' in config['activation']:
+        #     return QActivation(activation=quantizers.quantized_relu(total_bits, int_bits))
+        # return layer.__class__.from_config(config)
+        # Generalize QActivation to handle all non-linear activations
+        if isinstance(layer, tf.keras.layers.Activation):
+            activation_name = config['activation']
+            # Avoid quantizing linear/identity or final softmax layers
+            if 'linear' in activation_name or 'softmax' in activation_name:
+                return layer
+            # For all other activations (relu, gelu, leaky_relu, etc.)
+            # wrap them in a QActivation layer to quantize their output.
+            return QActivation(activation=f"quantized_bits({total_bits}, {int_bits})")
+
+            
         return layer.__class__.from_config(config)
     input_tensor = tf.keras.Input(shape=model.input_shape[1:])
     x = input_tensor
@@ -173,6 +185,8 @@ def run_qat_only_loop(base_model, dataset, config, results_dir, loss_function):
         print(f"\nRunning QAT for Precision: {precision_str}")
         
         qat_model = convert_to_qat_model(base_model, total_bits, int_bits)
+        # Example with the Adam optimizer
+        # qat_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5, clipnorm=1.0)
         qat_optimizer = tf.keras.optimizers.Adam(learning_rate=5e-5)
         qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=['accuracy'])
 
