@@ -27,6 +27,7 @@ saved_models/
 results/
 Results/
 plots/
+hybrid_search_space.yaml
 
 # OS
 .DS_Store

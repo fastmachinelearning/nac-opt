@@ -9,7 +9,6 @@ mplhep==0.4.1
 namex==0.0.8
 nbformat==5.10.4
 optree==0.14.1
-optuna==4.2.1
 orjson==3.10.16
 pickleshare==0.7.5
 pip-chill==1.0.3
@@ -18,9 +17,7 @@ plotly==6.0.0
 pydot==4.0.1
 qkeras==0.9.0
 rich==13.9.4
-rule4ml==0.1.1
+rule4ml==0.2.0
 scikit-image==0.25.2
 seaborn==0.13.2
-tf-keras==2.18.0
-torch-geometric==2.6.1
 torchvision==0.21.0
