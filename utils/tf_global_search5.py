@@ -11,12 +11,40 @@ from .tf_model_builder import build_mlp_from_config, build_deepsets_model
 from .tf_processor import train_model, evaluate_model, get_model_metrics
 from .tf_bops import get_MLP_bops_tf, estimate_conv_bops, estimate_attention_bops, estimate_mlp_bops
 from .tf_blocks import ConvAttentionBlock
+from .tf_data_preprocessing import load_generic_dataset
 
 # Helper function to save architecture to YAML
 def _save_architecture_to_yaml(model_details, file_path):
     """Saves the model architecture to a YAML file."""
     with open(file_path, 'w') as f:
         yaml.dump(model_details, f, default_flow_style=False, sort_keys=False)
+
+def _infer_input_shape_yaml(x):
+    """Infer YAML-friendly input shape (no batch dim)."""
+    shp = tuple(x.shape)
+    if len(shp) <= 1:
+        raise ValueError(f"Unexpected x shape: {shp}")
+    if len(shp) == 2:
+        return [int(shp[1])]          # e.g. qubit: [800]
+    return [int(d) for d in shp[1:]]  # e.g. images: [H, W, C]
+
+def _make_blockbased_components_for_input(input_shape_yaml, mlp_params):
+    """
+    Build components list for the BlockBased YAML schema.
+    Only add Flatten when input is image-like (rank > 1).
+    """
+    components = []
+    if len(input_shape_yaml) > 1:
+        components.append({"block_type": "Flatten", "name": "initial_flatten", "params": {}})
+
+    components.append(
+        {
+            "block_type": "MLP",
+            "name": "classifier_head",
+            "params": mlp_params,
+        }
+    )
+    return components
 
 
 class BlockArchitectureTF:
@@ -323,8 +351,121 @@ class GlobalSearchTF:
         """
         return get_MLP_bops_tf(model, input_shape=(1, input_size), bit_width=bit_width)
 
-    def create_mlp_objective(self, x_train, y_train, x_val, y_val, epochs=10, 
-                           use_hardware_metrics=False, verbose=True):
+    # def create_mlp_objective(self, x_train, y_train, x_val, y_val, epochs=10, 
+    #                        use_hardware_metrics=False, verbose=True):
+    #     """
+    #     Creates objective function for MLP optimization.
+    #     NOW MODIFIED to save a block-compatible architecture to YAML.
+    #     """
+    #     def objective(trial):
+    #         # This search space is specific to this simple MLP objective
+    #         mlp_search_space = {
+    #             "num_layers": [2, 3, 4, 5], "hidden_units1": [8, 16, 32, 64, 128],
+    #             "activation1": ["relu", "tanh", "sigmoid"], "batchnorm1": [True, False],
+    #             "hidden_units2": [8, 16, 32, 64], "activation2": ["relu", "tanh", "sigmoid"],
+    #             "batchnorm2": [True, False],
+    #             "hidden_units3": [8, 16, 32], "activation3": ["relu", "tanh", "sigmoid"],
+    #             "batchnorm3": [True, False],
+    #             "hidden_units4": [8, 16], "activation4": ["relu", "tanh", "sigmoid"],
+    #             "batchnorm4": [True, False],
+    #         }
+
+    #         # Sample architecture configuration
+    #         num_layers = trial.suggest_categorical("num_layers", mlp_search_space["num_layers"])
+    #         config = {
+    #             "num_layers": num_layers,
+    #             "hidden_units1": trial.suggest_categorical("hidden_units1", mlp_search_space["hidden_units1"]),
+    #             "activation1": trial.suggest_categorical("activation1", mlp_search_space["activation1"]),
+    #             "batchnorm1": trial.suggest_categorical("batchnorm1", mlp_search_space["batchnorm1"]),
+    #         }
+    #         if num_layers >= 3:
+    #             config["hidden_units2"] = trial.suggest_categorical("hidden_units2", mlp_search_space["hidden_units2"])
+    #             config["activation2"] = trial.suggest_categorical("activation2", mlp_search_space["activation2"])
+    #             config["batchnorm2"] = trial.suggest_categorical("batchnorm2", mlp_search_space["batchnorm2"])
+    #         if num_layers >= 4:
+    #             config["hidden_units3"] = trial.suggest_categorical("hidden_units3", mlp_search_space["hidden_units3"])
+    #             config["activation3"] = trial.suggest_categorical("activation3", mlp_search_space["activation3"])
+    #             config["batchnorm3"] = trial.suggest_categorical("batchnorm3", mlp_search_space["batchnorm3"])
+    #         if num_layers >= 5:
+    #             config["hidden_units4"] = trial.suggest_categorical("hidden_units4", mlp_search_space["hidden_units4"])
+    #             config["activation4"] = trial.suggest_categorical("activation4", mlp_search_space["activation4"])
+    #             config["batchnorm4"] = trial.suggest_categorical("batchnorm4", mlp_search_space["batchnorm4"])
+            
+    #         input_size = x_train.shape[1]
+    #         num_classes = y_train.shape[1]
+    #         from .tf_model_builder import build_mlp_from_config
+    #         model = build_mlp_from_config(config, input_size=input_size, num_classes=num_classes)
+            
+    #         train_model(model, (x_train, y_train), (x_val, y_val), 
+    #                     epochs=epochs, batch_size=128, patience=3, verbose=0)
+            
+    #         val_metrics = evaluate_model(model, (x_val, y_val))
+    #         performance_metric = val_metrics['accuracy']
+    #         bops = self.calculate_mlp_bops_tf(model, input_size)
+            
+    #         # --- NEW: Logic to create and save YAML architecture ---
+    #         # 1. Reconstruct the 2D image shape from the flattened input_size
+    #         img_dim = int(np.sqrt(input_size))
+    #         image_input_shape = [img_dim, img_dim, 1] # Assuming 1 channel for MNIST
+
+    #         # 2. Translate the simple config into the component-based format
+    #         widths = [input_size, config["hidden_units1"]] # MLP widths start after flattening
+    #         activations = [config["activation1"]]
+    #         normalizations = ['batch' if config["batchnorm1"] else None]
+    #         if num_layers >= 3:
+    #             widths.append(config["hidden_units2"])
+    #             activations.append(config["activation2"])
+    #             normalizations.append('batch' if config["batchnorm2"] else None)
+    #         widths.append(num_classes)
+    #         activations.append('softmax')
+    #         normalizations.append(None)
+            
+    #         # 3. Define components, starting with an explicit Flatten layer
+    #         model_components = [
+    #             {'block_type': 'Flatten', 'name': 'initial_flatten', 'params': {}},
+    #             {
+    #                 'block_type': 'MLP', 'name': 'classifier_head',
+    #                 'params': {'widths': widths, 'activations': activations, 'normalizations': normalizations}
+    #             }
+    #         ]
+            
+    #         model_details = {
+    #             'metadata': {'trial_id': trial.number, 'global_search_accuracy': float(performance_metric), 'global_search_bops': float(bops)},
+    #             'architecture': {
+    #                 'model_type': 'BlockBased',
+    #                 'input_shape': image_input_shape, # Use the 2D shape here
+    #                 'output_dim': num_classes, 'components': model_components
+    #             }
+    #         }
+            
+    #         trial_yaml_path = os.path.join(self.results_dir, f"trial_{trial.number}_arch.yaml")
+    #         _save_architecture_to_yaml(model_details, trial_yaml_path)
+
+    #         if use_hardware_metrics:
+    #             avg_resource, clock_cycles = self.calculate_hardware_metrics(model, input_size)
+    #         else:
+    #             avg_resource, clock_cycles = 0.0, 0.0
+            
+    #         if verbose:
+    #             print(f"Trial {trial.number}: Accuracy={performance_metric:.4f}, BOPs={bops}")
+            
+    #         result_data = {
+    #             'trial': trial.number, 'performance_metric': performance_metric, 'bops': bops,
+    #             'params': trial.params, 'yaml_path': trial_yaml_path
+    #         }
+    #         if use_hardware_metrics:
+    #             result_data['avg_resource'] = avg_resource
+    #             result_data['clock_cycles'] = clock_cycles
+    #         self.results.append(result_data)
+            
+    #         if use_hardware_metrics:
+    #             return performance_metric, bops, avg_resource, clock_cycles
+    #         return performance_metric, bops
+        
+    #     return objective
+
+    def create_mlp_objective(self, x_train, y_train, x_val, y_val, epochs=10,
+                            use_hardware_metrics=False, verbose=True):
         """
         Creates objective function for MLP optimization.
         NOW MODIFIED to save a block-compatible architecture to YAML.
@@ -362,78 +503,99 @@ class GlobalSearchTF:
                 config["hidden_units4"] = trial.suggest_categorical("hidden_units4", mlp_search_space["hidden_units4"])
                 config["activation4"] = trial.suggest_categorical("activation4", mlp_search_space["activation4"])
                 config["batchnorm4"] = trial.suggest_categorical("batchnorm4", mlp_search_space["batchnorm4"])
-            
+
             input_size = x_train.shape[1]
             num_classes = y_train.shape[1]
             from .tf_model_builder import build_mlp_from_config
             model = build_mlp_from_config(config, input_size=input_size, num_classes=num_classes)
-            
-            train_model(model, (x_train, y_train), (x_val, y_val), 
-                        epochs=epochs, batch_size=128, patience=3, verbose=0)
-            
-            val_metrics = evaluate_model(model, (x_val, y_val))
-            performance_metric = val_metrics['accuracy']
-            bops = self.calculate_mlp_bops_tf(model, input_size)
-            
-            # --- NEW: Logic to create and save YAML architecture ---
-            # 1. Reconstruct the 2D image shape from the flattened input_size
-            img_dim = int(np.sqrt(input_size))
-            image_input_shape = [img_dim, img_dim, 1] # Assuming 1 channel for MNIST
 
-            # 2. Translate the simple config into the component-based format
-            widths = [input_size, config["hidden_units1"]] # MLP widths start after flattening
+            train_model(
+                model, (x_train, y_train), (x_val, y_val),
+                epochs=epochs, batch_size=128, patience=3, verbose=0
+            )
+
+            val_metrics = evaluate_model(model, (x_val, y_val))
+            performance_metric = val_metrics["accuracy"]
+            bops = self.calculate_mlp_bops_tf(model, input_size)
+
+            # --- REPLACE THE MNIST-SPECIFIC YAML LOGIC WITH THIS ---
+            input_shape_yaml = _infer_input_shape_yaml(x_train)
+
+            widths = [input_size, config["hidden_units1"]]
             activations = [config["activation1"]]
-            normalizations = ['batch' if config["batchnorm1"] else None]
+            normalizations = ["batch" if config["batchnorm1"] else None]
+
             if num_layers >= 3:
                 widths.append(config["hidden_units2"])
                 activations.append(config["activation2"])
-                normalizations.append('batch' if config["batchnorm2"] else None)
+                normalizations.append("batch" if config["batchnorm2"] else None)
+            if num_layers >= 4:
+                widths.append(config["hidden_units3"])
+                activations.append(config["activation3"])
+                normalizations.append("batch" if config["batchnorm3"] else None)
+            if num_layers >= 5:
+                widths.append(config["hidden_units4"])
+                activations.append(config["activation4"])
+                normalizations.append("batch" if config["batchnorm4"] else None)
+
             widths.append(num_classes)
-            activations.append('softmax')
+            activations.append("softmax")
             normalizations.append(None)
-            
-            # 3. Define components, starting with an explicit Flatten layer
-            model_components = [
-                {'block_type': 'Flatten', 'name': 'initial_flatten', 'params': {}},
+
+            model_components = []
+            if len(input_shape_yaml) > 1:
+                model_components.append({"block_type": "Flatten", "name": "initial_flatten", "params": {}})
+
+            model_components.append(
                 {
-                    'block_type': 'MLP', 'name': 'classifier_head',
-                    'params': {'widths': widths, 'activations': activations, 'normalizations': normalizations}
+                    "block_type": "MLP",
+                    "name": "classifier_head",
+                    "params": {"widths": widths, "activations": activations, "normalizations": normalizations},
                 }
-            ]
-            
+            )
+
             model_details = {
-                'metadata': {'trial_id': trial.number, 'global_search_accuracy': float(performance_metric), 'global_search_bops': float(bops)},
-                'architecture': {
-                    'model_type': 'BlockBased',
-                    'input_shape': image_input_shape, # Use the 2D shape here
-                    'output_dim': num_classes, 'components': model_components
-                }
+                "metadata": {
+                    "trial_id": trial.number,
+                    "global_search_accuracy": float(performance_metric),
+                    "global_search_bops": float(bops),
+                },
+                "architecture": {
+                    "model_type": "BlockBased",
+                    "input_shape": input_shape_yaml,
+                    "output_dim": int(num_classes),
+                    "components": model_components,
+                },
             }
-            
+
             trial_yaml_path = os.path.join(self.results_dir, f"trial_{trial.number}_arch.yaml")
             _save_architecture_to_yaml(model_details, trial_yaml_path)
+            # --- END REPLACEMENT ---
 
             if use_hardware_metrics:
                 avg_resource, clock_cycles = self.calculate_hardware_metrics(model, input_size)
             else:
                 avg_resource, clock_cycles = 0.0, 0.0
-            
+
             if verbose:
                 print(f"Trial {trial.number}: Accuracy={performance_metric:.4f}, BOPs={bops}")
-            
+
             result_data = {
-                'trial': trial.number, 'performance_metric': performance_metric, 'bops': bops,
-                'params': trial.params, 'yaml_path': trial_yaml_path
+                "trial": trial.number,
+                "performance_metric": performance_metric,
+                "bops": bops,
+                "params": trial.params,
+                "yaml_path": trial_yaml_path,
             }
             if use_hardware_metrics:
-                result_data['avg_resource'] = avg_resource
-                result_data['clock_cycles'] = clock_cycles
+                result_data["avg_resource"] = avg_resource
+                result_data["clock_cycles"] = clock_cycles
             self.results.append(result_data)
-            
+
             if use_hardware_metrics:
                 return performance_metric, bops, avg_resource, clock_cycles
             return performance_metric, bops
-        
+
         return objective
 
     def calculate_hardware_metrics(self, model, input_shape):
@@ -446,8 +608,29 @@ class GlobalSearchTF:
         Returns:
             tuple: (avg_resource, clock_cycles)
         """
+        # try:
+        #     from rule4ml.models.estimators import MultiModelEstimator
+            
+        #     # Patch model layers with shape info, which is required by rule4ml.
+        #     for layer in model.layers:
+        #         if hasattr(layer, "input_spec") and layer.input_spec and layer.input_spec.shape:
+        #             layer._build_shapes_dict = {"input": layer.input_spec.shape}
+        #         elif hasattr(layer, "input_shape") and layer.input_shape is not None:
+        #             layer._build_shapes_dict = {"input": layer.input_shape}
+        #         else:
+        #             # Fallback for the first layer if shape is not yet inferred
+        #             if isinstance(input_shape, (list, tuple)):
+        #                 layer._build_shapes_dict = {"input": (None, *input_shape)}
+        #             else:
+        #                 layer._build_shapes_dict = {"input": (None, input_shape)}
+
+        #     estimator = MultiModelEstimator()
+        #     estimator.load_default_models()
+            
+        #     pred_df = estimator.predict([model], [self.hls_config])
+
         try:
-            from rule4ml.models.estimators import MultiModelEstimator
+            from rule4ml.models.wrappers import MultiModelWrapper
             
             # Patch model layers with shape info, which is required by rule4ml.
             for layer in model.layers:
@@ -462,10 +645,10 @@ class GlobalSearchTF:
                     else:
                         layer._build_shapes_dict = {"input": (None, input_shape)}
 
-            estimator = MultiModelEstimator()
+            estimator = MultiModelWrapper()
             estimator.load_default_models()
-            
-            pred_df = estimator.predict([model], [self.hls_config])
+
+            pred_df = estimator.predict([model], hls_configs=[self.hls_config])
             
             if not pred_df.empty:
                 results = pred_df.iloc[0]
@@ -491,9 +674,78 @@ class GlobalSearchTF:
             return 100.0, 1e9
 
 
-    def run_search(self, model_type='block', n_trials=10, epochs=10, dataset='mnist',
-                   subset_size=10000, resize_val=11, objectives=None, maximize_flags=None,
-                   use_hardware_metrics=False, verbose=True, one_hot=False):
+    # def run_search(self, model_type='block', n_trials=10, epochs=10, dataset='mnist',
+    #                subset_size=10000, resize_val=11, objectives=None, maximize_flags=None,
+    #                use_hardware_metrics=False, verbose=True, one_hot=False):
+    #     """
+    #     Run global search.
+    #     """
+    #     if verbose:
+    #         print(f"\n{'='*50}\nStarting {model_type.upper()} Global Search on {dataset.upper()}\n{'='*50}\n")
+
+    #     # MODIFICATION: Set objective names based on hardware flag and model type
+    #     if use_hardware_metrics:
+    #         self.objective_names = objectives or ['performance_metric', 'bops', 'avg_resource', 'clock_cycles']
+    #         self.maximize_flags = maximize_flags or [True, False, False, False]
+    #     else:
+    #         self.objective_names = objectives or ['performance_metric', 'bops']
+    #         self.maximize_flags = maximize_flags or [True, False]
+
+    #     # MODIFICATION: Conditional data loading based on model type
+    #     is_mlp = (model_type == 'mlp')
+    #     # x_train, y_train, x_val, y_val = load_and_preprocess_mnist(
+    #     #     resize_val=resize_val,
+    #     #     subset_size=subset_size,
+    #     #     flatten=is_mlp,  # Flatten for MLP, not for block-based
+    #     #     one_hot=is_mlp   # One-hot for MLP, not for sparse cross-entropy
+    #     # )
+    #     from .tf_data_preprocessing import load_generic_dataset # <-- Add import
+    #     x_train, y_train, x_val, y_val = load_generic_dataset(
+    #         dataset_name=dataset, # <-- Use the 'dataset' parameter
+    #         resize_val=resize_val,
+    #         subset_size=subset_size,
+    #         flatten=is_mlp,
+    #         one_hot=is_mlp or one_hot
+    #     )
+
+
+    #     # MODIFICATION: Select the correct objective function
+    #     if model_type == 'mlp':
+    #         objective = self.create_mlp_objective(
+    #             x_train, y_train, x_val, y_val, epochs, use_hardware_metrics, verbose
+    #         )
+    #     elif model_type == 'block':
+    #         objective = self.create_block_objective(
+    #             x_train, y_train, x_val, y_val, epochs, use_hardware_metrics, verbose, one_hot,
+    #         )
+    #     else:
+    #         raise ValueError(f"Model type '{model_type}' not supported. Use 'mlp' or 'block'.")
+
+    #     # Set up optimization directions
+    #     directions = ["maximize" if flag else "minimize" for flag in self.maximize_flags]
+    #     study = optuna.create_study(directions=directions, sampler=optuna.samplers.NSGAIISampler())
+    #     study.optimize(objective, n_trials=n_trials)
+
+    #     self.save_results(model_type, study)
+    #     if verbose:
+    #         self.print_best_trials(study)
+    #     return study
+
+    def run_search( # changed so that dataset_kwargs could be accepted
+        self,
+        model_type='block',
+        n_trials=10,
+        epochs=10,
+        dataset='mnist',
+        subset_size=10000,
+        resize_val=11,
+        objectives=None,
+        maximize_flags=None,
+        use_hardware_metrics=False,
+        verbose=True,
+        one_hot=False,
+        **dataset_kwargs,  # <-- NEW: forward arbitrary dataset loader args
+    ):
         """
         Run global search.
         """
@@ -510,21 +762,24 @@ class GlobalSearchTF:
 
         # MODIFICATION: Conditional data loading based on model type
         is_mlp = (model_type == 'mlp')
-        # x_train, y_train, x_val, y_val = load_and_preprocess_mnist(
-        #     resize_val=resize_val,
-        #     subset_size=subset_size,
-        #     flatten=is_mlp,  # Flatten for MLP, not for block-based
-        #     one_hot=is_mlp   # One-hot for MLP, not for sparse cross-entropy
-        # )
-        from .tf_data_preprocessing import load_generic_dataset # <-- Add import
-        x_train, y_train, x_val, y_val = load_generic_dataset(
-            dataset_name=dataset, # <-- Use the 'dataset' parameter
-            resize_val=resize_val,
+
+        # Build kwargs for loader in a dataset-safe way
+        loader_kwargs = dict(
             subset_size=subset_size,
             flatten=is_mlp,
-            one_hot=is_mlp or one_hot
+            one_hot=is_mlp or one_hot,
         )
+        # Only MNIST-like datasets accept resize_val
+        if dataset in ("mnist", "fashion_mnist"):
+            loader_kwargs["resize_val"] = resize_val
 
+        # Allow caller to override/extend (e.g. data_dir, window_size for qubit)
+        loader_kwargs.update(dataset_kwargs or {})
+
+        x_train, y_train, x_val, y_val = load_generic_dataset(
+            dataset_name=dataset,
+            **loader_kwargs,
+        )
 
         # MODIFICATION: Select the correct objective function
         if model_type == 'mlp':
@@ -603,32 +858,71 @@ def sample_dense_block_tf(trial, prefix, search_space):
 
 
 
-def run_mlp_search(search_space_path=None, results_dir="./results_tf", n_trials=20, 
-                  epochs=5, subset_size=5000, resize_val=8, use_hardware_metrics=False):
-    """
-    Convenience function to run MLP search with common parameters.
+# def run_mlp_search(search_space_path=None, results_dir="./results_tf", n_trials=20, 
+#                   epochs=5, subset_size=5000, resize_val=8, use_hardware_metrics=False):
+#     """
+#     Convenience function to run MLP search with common parameters.
     
-    Parameters:
-        search_space_path: Path to search space YAML
-        results_dir: Directory for results
-        n_trials: Number of trials
-        epochs: Training epochs
-        subset_size: Dataset subset size
-        resize_val: Image resize dimension
-        use_hardware_metrics: Whether to use real hardware metrics
+#     Parameters:
+#         search_space_path: Path to search space YAML
+#         results_dir: Directory for results
+#         n_trials: Number of trials
+#         epochs: Training epochs
+#         subset_size: Dataset subset size
+#         resize_val: Image resize dimension
+#         use_hardware_metrics: Whether to use real hardware metrics
         
-    Returns:
-        tuple: (study, searcher) for further analysis
+#     Returns:
+#         tuple: (study, searcher) for further analysis
+#     """
+#     searcher = GlobalSearchTF(search_space_path=search_space_path, results_dir=results_dir)
+    
+#     study = searcher.run_search(
+#         model_type='mlp',
+#         n_trials=n_trials,
+#         epochs=epochs,
+#         subset_size=subset_size,
+#         resize_val=resize_val,
+#         use_hardware_metrics=use_hardware_metrics
+#     )
+    
+#     return study, searcher
+
+def run_mlp_search(
+    search_space_path=None,
+    results_dir="./results_tf",
+    n_trials=20,
+    epochs=5,
+    dataset="mnist",
+    subset_size=5000,
+    resize_val=8,
+    use_hardware_metrics=False,
+    dataset_kwargs=None,
+):
+    """
+    Convenience function to run MLP search.
+
+    dataset_kwargs: dict forwarded into load_generic_dataset (e.g. start_location, window_size, data_dir)
     """
     searcher = GlobalSearchTF(search_space_path=search_space_path, results_dir=results_dir)
-    
-    study = searcher.run_search(
-        model_type='mlp',
+
+    dataset_kwargs = dataset_kwargs or {}
+
+    # Only pass resize_val for image datasets that accept it.
+    run_search_kwargs = dict(
+        model_type="mlp",
         n_trials=n_trials,
         epochs=epochs,
+        dataset=dataset,
         subset_size=subset_size,
-        resize_val=resize_val,
-        use_hardware_metrics=use_hardware_metrics
+        use_hardware_metrics=use_hardware_metrics,
     )
-    
+    if dataset in ("mnist", "fashion_mnist"):
+        run_search_kwargs["resize_val"] = resize_val
+
+    # Forward qubit/other dataset loader settings via **kwargs by adding support in run_search next if needed.
+    # For now: simplest is to store in searcher and have run_search pass through;
+    # but a minimal change is to modify run_search signature to accept dataset_kwargs.
+    study = searcher.run_search(**run_search_kwargs, **dataset_kwargs)
+
     return study, searcher
