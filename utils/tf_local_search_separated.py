@@ -96,8 +96,20 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
             for key in ['kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']: config.pop(key, None)
             config['kernel_quantizer'], config['bias_quantizer'] = weight_quantizer, bias_quantizer
             return QDense.from_config(config)
-        if isinstance(layer, tf.keras.layers.Activation) and 'relu' in config['activation']:
-            return QActivation(activation=quantizers.quantized_relu(total_bits, int_bits))
+        # if isinstance(layer, tf.keras.layers.Activation) and 'relu' in config['activation']:
+        #     return QActivation(activation=quantizers.quantized_relu(total_bits, int_bits))
+        # return layer.__class__.from_config(config)
+        # Generalize QActivation to handle all non-linear activations
+        if isinstance(layer, tf.keras.layers.Activation):
+            activation_name = config['activation']
+            # Avoid quantizing linear/identity or final softmax layers
+            if 'linear' in activation_name or 'softmax' in activation_name:
+                return layer
+            # For all other activations (relu, gelu, leaky_relu, etc.)
+            # wrap them in a QActivation layer to quantize their output.
+            return QActivation(activation=f"quantized_bits({total_bits}, {int_bits})")
+
+            
         return layer.__class__.from_config(config)
     input_tensor = tf.keras.Input(shape=model.input_shape[1:])
     x = input_tensor
@@ -121,6 +133,7 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
             new_layer.set_weights(original_layers_flat[i].get_weights())
     return qat_model
 
+# --- NEW: Independent Local Search Functions ---
 
 def run_pruning_only_loop(base_model, dataset, config, results_dir, loss_function):
     """Performs iterative magnitude pruning on a full-precision Keras model."""
@@ -147,16 +160,6 @@ def run_pruning_only_loop(base_model, dataset, config, results_dir, loss_functio
                          batch_size=128, callbacks=[tfmot.sparsity.keras.UpdatePruningStep()], verbose=1)
         
         model_stripped = tfmot.sparsity.keras.strip_pruning(pruned_model)
-        def tensor_sparsity(x):
-            return (x == 0).sum() / x.size
-
-        actual = []
-        for w in model_stripped.get_weights():
-            if w.ndim >= 2:  # only kernels / weight matrices
-                actual.append(tensor_sparsity(w))
-        actual_sparsity = float(np.mean(actual))
-        print(f"Actual avg sparsity: {actual_sparsity:.4f}")
-
         model_stripped.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
         _, val_acc = model_stripped.evaluate(x_val, y_val, verbose=0)
         print(f"  -> Accuracy for sparsity {target_sparsity:.4f}: {val_acc:.4f}")
@@ -182,6 +185,8 @@ def run_qat_only_loop(base_model, dataset, config, results_dir, loss_function):
         print(f"\nRunning QAT for Precision: {precision_str}")
         
         qat_model = convert_to_qat_model(base_model, total_bits, int_bits)
+        # Example with the Adam optimizer
+        # qat_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5, clipnorm=1.0)
         qat_optimizer = tf.keras.optimizers.Adam(learning_rate=5e-5)
         qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=['accuracy'])
 
@@ -196,9 +201,12 @@ def run_qat_only_loop(base_model, dataset, config, results_dir, loss_function):
         
     return pd.read_csv(log_filename)
 
-def local_search_entrypoint(architecture_yaml_path, local_search_config_path, dataset, results_dir):
-    """Main entrypoint that runs pruning and QAT as two separate experiments."""
+def local_search_entrypoint(architecture_yaml_path, local_search_config_path, dataset, results_dir, run_pruning=True):
+    """
+    Main entrypoint that runs local search experiments. Pruning is optional.
+    """
     print("\n" + "="*50 + "\n STARTING SEPARATED LOCAL SEARCH STAGE \n" + "="*50)
+    
     os.makedirs(results_dir, exist_ok=True)
     with open(local_search_config_path, 'r') as f: config = yaml.safe_load(f)
     
@@ -207,8 +215,13 @@ def local_search_entrypoint(architecture_yaml_path, local_search_config_path, da
 
     base_model = load_model_from_yaml(architecture_yaml_path)
     
-    # Run Experiment 1: Pruning
-    pruning_df = run_pruning_only_loop(base_model, dataset, config, results_dir, loss_function)
+    pruning_df = pd.DataFrame() # Initialize empty dataframe
+    if run_pruning:
+        if 'pruning_settings' in config:
+            # Run Experiment 1: Pruning
+            pruning_df = run_pruning_only_loop(base_model, dataset, config, results_dir, loss_function)
+        else:
+            print("Warning: 'run_pruning' is True, but 'pruning_settings' not found in config. Skipping pruning.")
     
     # Run Experiment 2: QAT
     qat_df = run_qat_only_loop(base_model, dataset, config, results_dir, loss_function)
