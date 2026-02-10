@@ -20,4 +20,4 @@ rich==13.9.4
 rule4ml==0.2.0
 scikit-image==0.25.2
 seaborn==0.13.2
-torchvision==0.21.0
+# torchvision==0.21.0

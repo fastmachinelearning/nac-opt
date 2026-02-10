@@ -1,0 +1,13 @@
+
+mlp_width_space: [16, 32, 64, 128]
+act_space: ["ReLU", "LeakyReLU"]
+norm_space: ["batch", null]
+block_types: ["MLP"]
+num_blocks: 3
+initial_img_size: 16
+output_dim: 10
+# Required dummy keys for validation:
+channel_space: [16, 32] 
+kernel_space: [3]
+conv_attn: 
+  hidden_channel_space: [4]

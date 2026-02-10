@@ -28,6 +28,32 @@ def _infer_input_shape_yaml(x):
         return [int(shp[1])]          # e.g. qubit: [800]
     return [int(d) for d in shp[1:]]  # e.g. images: [H, W, C]
 
+def _stratified_k_fold_indices(y, n_folds, one_hot=False):
+    """Return list of (train_indices, val_indices) for stratified k-fold splitting."""
+    if one_hot:
+        labels = np.argmax(y, axis=1)
+    else:
+        labels = y.astype(int).ravel()
+
+    classes = np.unique(labels)
+    fold_indices = [[] for _ in range(n_folds)]
+
+    rng = np.random.RandomState(42)
+    for cls in classes:
+        cls_indices = np.where(labels == cls)[0]
+        rng.shuffle(cls_indices)
+        splits = np.array_split(cls_indices, n_folds)
+        for i, split in enumerate(splits):
+            fold_indices[i].extend(split.tolist())
+
+    result = []
+    for i in range(n_folds):
+        val_idx = np.array(fold_indices[i])
+        train_idx = np.concatenate([np.array(fold_indices[j]) for j in range(n_folds) if j != i])
+        result.append((train_idx, val_idx))
+    return result
+
+
 def _make_blockbased_components_for_input(input_shape_yaml, mlp_params):
     """
     Build components list for the BlockBased YAML schema.
@@ -45,6 +71,51 @@ def _make_blockbased_components_for_input(input_shape_yaml, mlp_params):
         }
     )
     return components
+
+
+def _is_rule4ml_unsupported_activation(layer):
+    """Check if a layer is an activation type that rule4ml cannot handle.
+
+    rule4ml only supports ReLU, Softmax, and linear Activation layers.
+    LeakyReLU, GELU, and other exotic activations cause feature extraction errors.
+    """
+    if isinstance(layer, tf.keras.layers.LeakyReLU):
+        return True
+    if isinstance(layer, tf.keras.layers.Activation):
+        act = layer.get_config().get("activation", "")
+        if act not in ("linear", "relu", "softmax", "sigmoid", "tanh"):
+            return True
+    return False
+
+
+def _flatten_keras_model(model):
+    """Rebuild a Keras functional model compatible with rule4ml.
+
+    Two transformations are applied:
+    1. Sequential sub-models are expanded into individual layers (rule4ml's
+       network parser requires a 'dtype' config key that Sequential lacks).
+    2. Unsupported activation layers (LeakyReLU, GELU, etc.) are replaced with
+       ReLU.  This is safe because rule4ml only uses layer types and shapes for
+       resource estimation — actual weights and activation functions don't affect
+       the prediction.
+    """
+    inputs = model.input
+    x = inputs
+
+    def _apply(layer, tensor):
+        if _is_rule4ml_unsupported_activation(layer):
+            return tf.keras.layers.ReLU()(tensor)
+        return layer(tensor)
+
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.layers.InputLayer):
+            continue
+        if isinstance(layer, tf.keras.Sequential):
+            for sub_layer in layer.layers:
+                x = _apply(sub_layer, x)
+        else:
+            x = _apply(layer, x)
+    return tf.keras.Model(inputs=inputs, outputs=x, name=model.name + "_flat")
 
 
 class BlockArchitectureTF:
@@ -71,7 +142,7 @@ class BlockArchitectureTF:
         # Only add a Flatten layer if the preceding blocks were all 2D.
         if self.needs_flattening:
             x = tf.keras.layers.Flatten()(x)
-        
+
         x = self.mlp(x)
 
         self.model = tf.keras.Model(inputs=self.inputs, outputs=x, name='BlockArchitecture')
@@ -215,7 +286,7 @@ class GlobalSearchTF:
             "board": "zcu102"
         }
 
-    def create_block_objective(self, x_train, y_train, x_val, y_val, epochs=10, use_hardware_metrics=False, verbose=True, one_hot= False):
+    def create_block_objective(self, x_train, y_train, x_val, y_val, epochs=10, use_hardware_metrics=False, verbose=True, one_hot=False, n_folds=1):
         """Creates the objective function for Optuna to optimize."""
         def objective(trial):
             try:
@@ -311,13 +382,38 @@ class GlobalSearchTF:
 
                 input_shape = (img_size, img_size, x_train.shape[-1])
                 model = BlockArchitectureTF(feature_extractor_blocks, classifier_head, input_shape, needs_flattening=(not is_flattened))
-                
-                model.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
-                train_model(model, (x_train, y_train), (x_val, y_val), epochs=epochs, batch_size=128, verbose=0)
-                
-                val_metrics = evaluate_model(model, (x_val, y_val))
-                performance_metric = val_metrics['accuracy']
-                
+
+                if n_folds > 1:
+                    # Combine train+val into a single pool for k-fold splitting
+                    x_all = np.concatenate([x_train, x_val], axis=0)
+                    y_all = np.concatenate([y_train, y_val], axis=0)
+                    fold_indices = _stratified_k_fold_indices(y_all, n_folds, one_hot=one_hot)
+
+                    fold_accuracies = []
+                    for fold_idx, (fold_train_idx, fold_val_idx) in enumerate(fold_indices):
+                        xf_train, yf_train = x_all[fold_train_idx], y_all[fold_train_idx]
+                        xf_val, yf_val = x_all[fold_val_idx], y_all[fold_val_idx]
+
+                        # clone_model creates fresh random weights, same architecture
+                        fold_model = tf.keras.models.clone_model(model.model)
+                        fold_model.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
+                        train_model(fold_model, (xf_train, yf_train), (xf_val, yf_val),
+                                    epochs=epochs, batch_size=128, verbose=0)
+                        fold_metrics = evaluate_model(fold_model, (xf_val, yf_val))
+                        fold_accuracies.append(fold_metrics['accuracy'])
+
+                    performance_metric = np.mean(fold_accuracies)
+                else:
+                    model.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
+                    train_model(model, (x_train, y_train), (x_val, y_val),
+                                epochs=epochs, batch_size=128, verbose=0)
+                    val_metrics = evaluate_model(model, (x_val, y_val))
+                    performance_metric = val_metrics['accuracy']
+
+                if use_hardware_metrics:
+                    flat_model = _flatten_keras_model(model.model)
+                    avg_resource, clock_cycles = self.calculate_hardware_metrics(flat_model, input_shape)
+
                 model_details = {
                     'metadata': {'trial_id': trial.number, 'global_search_accuracy': float(performance_metric), 'global_search_bops': float(bops)},
                     'architecture': {
@@ -331,16 +427,33 @@ class GlobalSearchTF:
                 _save_architecture_to_yaml(model_details, trial_yaml_path)
                 
                 if verbose:
-                    print(f"Trial {trial.number}: Accuracy={performance_metric:.4f}, BOPs={bops}")
+                    base_msg = f"Trial {trial.number}"
+                    if n_folds > 1:
+                        fold_str = ", ".join(f"{a:.4f}" for a in fold_accuracies)
+                        base_msg += f": Folds=[{fold_str}], MeanAcc={performance_metric:.4f}, BOPs={bops}"
+                    else:
+                        base_msg += f": Accuracy={performance_metric:.4f}, BOPs={bops}"
+                    if use_hardware_metrics:
+                        base_msg += f", AvgResource={avg_resource:.2f}%, Cycles={clock_cycles}"
+                    print(base_msg)
 
-                self.results.append({
-                    'trial': trial.number, 'performance_metric': performance_metric, 'bops': bops, 
+                result_data = {
+                    'trial': trial.number, 'performance_metric': performance_metric, 'bops': bops,
                     'params': trial.params, 'yaml_path': trial_yaml_path
-                })
+                }
+                if use_hardware_metrics:
+                    result_data['avg_resource'] = avg_resource
+                    result_data['clock_cycles'] = clock_cycles
+                self.results.append(result_data)
+
+                if use_hardware_metrics:
+                    return performance_metric, bops, avg_resource, clock_cycles
                 return performance_metric, bops
-            
+
             except Exception as e:
                 print(f"Trial {trial.number} failed with error: {e}")
+                if use_hardware_metrics:
+                    return 0.0, 1e12, 100.0, 1e9
                 return 0.0, 1e12
 
         return objective
@@ -351,118 +464,6 @@ class GlobalSearchTF:
         """
         return get_MLP_bops_tf(model, input_shape=(1, input_size), bit_width=bit_width)
 
-    # def create_mlp_objective(self, x_train, y_train, x_val, y_val, epochs=10, 
-    #                        use_hardware_metrics=False, verbose=True):
-    #     """
-    #     Creates objective function for MLP optimization.
-    #     NOW MODIFIED to save a block-compatible architecture to YAML.
-    #     """
-    #     def objective(trial):
-    #         # This search space is specific to this simple MLP objective
-    #         mlp_search_space = {
-    #             "num_layers": [2, 3, 4, 5], "hidden_units1": [8, 16, 32, 64, 128],
-    #             "activation1": ["relu", "tanh", "sigmoid"], "batchnorm1": [True, False],
-    #             "hidden_units2": [8, 16, 32, 64], "activation2": ["relu", "tanh", "sigmoid"],
-    #             "batchnorm2": [True, False],
-    #             "hidden_units3": [8, 16, 32], "activation3": ["relu", "tanh", "sigmoid"],
-    #             "batchnorm3": [True, False],
-    #             "hidden_units4": [8, 16], "activation4": ["relu", "tanh", "sigmoid"],
-    #             "batchnorm4": [True, False],
-    #         }
-
-    #         # Sample architecture configuration
-    #         num_layers = trial.suggest_categorical("num_layers", mlp_search_space["num_layers"])
-    #         config = {
-    #             "num_layers": num_layers,
-    #             "hidden_units1": trial.suggest_categorical("hidden_units1", mlp_search_space["hidden_units1"]),
-    #             "activation1": trial.suggest_categorical("activation1", mlp_search_space["activation1"]),
-    #             "batchnorm1": trial.suggest_categorical("batchnorm1", mlp_search_space["batchnorm1"]),
-    #         }
-    #         if num_layers >= 3:
-    #             config["hidden_units2"] = trial.suggest_categorical("hidden_units2", mlp_search_space["hidden_units2"])
-    #             config["activation2"] = trial.suggest_categorical("activation2", mlp_search_space["activation2"])
-    #             config["batchnorm2"] = trial.suggest_categorical("batchnorm2", mlp_search_space["batchnorm2"])
-    #         if num_layers >= 4:
-    #             config["hidden_units3"] = trial.suggest_categorical("hidden_units3", mlp_search_space["hidden_units3"])
-    #             config["activation3"] = trial.suggest_categorical("activation3", mlp_search_space["activation3"])
-    #             config["batchnorm3"] = trial.suggest_categorical("batchnorm3", mlp_search_space["batchnorm3"])
-    #         if num_layers >= 5:
-    #             config["hidden_units4"] = trial.suggest_categorical("hidden_units4", mlp_search_space["hidden_units4"])
-    #             config["activation4"] = trial.suggest_categorical("activation4", mlp_search_space["activation4"])
-    #             config["batchnorm4"] = trial.suggest_categorical("batchnorm4", mlp_search_space["batchnorm4"])
-            
-    #         input_size = x_train.shape[1]
-    #         num_classes = y_train.shape[1]
-    #         from .tf_model_builder import build_mlp_from_config
-    #         model = build_mlp_from_config(config, input_size=input_size, num_classes=num_classes)
-            
-    #         train_model(model, (x_train, y_train), (x_val, y_val), 
-    #                     epochs=epochs, batch_size=128, patience=3, verbose=0)
-            
-    #         val_metrics = evaluate_model(model, (x_val, y_val))
-    #         performance_metric = val_metrics['accuracy']
-    #         bops = self.calculate_mlp_bops_tf(model, input_size)
-            
-    #         # --- NEW: Logic to create and save YAML architecture ---
-    #         # 1. Reconstruct the 2D image shape from the flattened input_size
-    #         img_dim = int(np.sqrt(input_size))
-    #         image_input_shape = [img_dim, img_dim, 1] # Assuming 1 channel for MNIST
-
-    #         # 2. Translate the simple config into the component-based format
-    #         widths = [input_size, config["hidden_units1"]] # MLP widths start after flattening
-    #         activations = [config["activation1"]]
-    #         normalizations = ['batch' if config["batchnorm1"] else None]
-    #         if num_layers >= 3:
-    #             widths.append(config["hidden_units2"])
-    #             activations.append(config["activation2"])
-    #             normalizations.append('batch' if config["batchnorm2"] else None)
-    #         widths.append(num_classes)
-    #         activations.append('softmax')
-    #         normalizations.append(None)
-            
-    #         # 3. Define components, starting with an explicit Flatten layer
-    #         model_components = [
-    #             {'block_type': 'Flatten', 'name': 'initial_flatten', 'params': {}},
-    #             {
-    #                 'block_type': 'MLP', 'name': 'classifier_head',
-    #                 'params': {'widths': widths, 'activations': activations, 'normalizations': normalizations}
-    #             }
-    #         ]
-            
-    #         model_details = {
-    #             'metadata': {'trial_id': trial.number, 'global_search_accuracy': float(performance_metric), 'global_search_bops': float(bops)},
-    #             'architecture': {
-    #                 'model_type': 'BlockBased',
-    #                 'input_shape': image_input_shape, # Use the 2D shape here
-    #                 'output_dim': num_classes, 'components': model_components
-    #             }
-    #         }
-            
-    #         trial_yaml_path = os.path.join(self.results_dir, f"trial_{trial.number}_arch.yaml")
-    #         _save_architecture_to_yaml(model_details, trial_yaml_path)
-
-    #         if use_hardware_metrics:
-    #             avg_resource, clock_cycles = self.calculate_hardware_metrics(model, input_size)
-    #         else:
-    #             avg_resource, clock_cycles = 0.0, 0.0
-            
-    #         if verbose:
-    #             print(f"Trial {trial.number}: Accuracy={performance_metric:.4f}, BOPs={bops}")
-            
-    #         result_data = {
-    #             'trial': trial.number, 'performance_metric': performance_metric, 'bops': bops,
-    #             'params': trial.params, 'yaml_path': trial_yaml_path
-    #         }
-    #         if use_hardware_metrics:
-    #             result_data['avg_resource'] = avg_resource
-    #             result_data['clock_cycles'] = clock_cycles
-    #         self.results.append(result_data)
-            
-    #         if use_hardware_metrics:
-    #             return performance_metric, bops, avg_resource, clock_cycles
-    #         return performance_metric, bops
-        
-    #     return objective
 
     def create_mlp_objective(self, x_train, y_train, x_val, y_val, epochs=10,
                             use_hardware_metrics=False, verbose=True):
@@ -674,63 +675,6 @@ class GlobalSearchTF:
             return 100.0, 1e9
 
 
-    # def run_search(self, model_type='block', n_trials=10, epochs=10, dataset='mnist',
-    #                subset_size=10000, resize_val=11, objectives=None, maximize_flags=None,
-    #                use_hardware_metrics=False, verbose=True, one_hot=False):
-    #     """
-    #     Run global search.
-    #     """
-    #     if verbose:
-    #         print(f"\n{'='*50}\nStarting {model_type.upper()} Global Search on {dataset.upper()}\n{'='*50}\n")
-
-    #     # MODIFICATION: Set objective names based on hardware flag and model type
-    #     if use_hardware_metrics:
-    #         self.objective_names = objectives or ['performance_metric', 'bops', 'avg_resource', 'clock_cycles']
-    #         self.maximize_flags = maximize_flags or [True, False, False, False]
-    #     else:
-    #         self.objective_names = objectives or ['performance_metric', 'bops']
-    #         self.maximize_flags = maximize_flags or [True, False]
-
-    #     # MODIFICATION: Conditional data loading based on model type
-    #     is_mlp = (model_type == 'mlp')
-    #     # x_train, y_train, x_val, y_val = load_and_preprocess_mnist(
-    #     #     resize_val=resize_val,
-    #     #     subset_size=subset_size,
-    #     #     flatten=is_mlp,  # Flatten for MLP, not for block-based
-    #     #     one_hot=is_mlp   # One-hot for MLP, not for sparse cross-entropy
-    #     # )
-    #     from .tf_data_preprocessing import load_generic_dataset # <-- Add import
-    #     x_train, y_train, x_val, y_val = load_generic_dataset(
-    #         dataset_name=dataset, # <-- Use the 'dataset' parameter
-    #         resize_val=resize_val,
-    #         subset_size=subset_size,
-    #         flatten=is_mlp,
-    #         one_hot=is_mlp or one_hot
-    #     )
-
-
-    #     # MODIFICATION: Select the correct objective function
-    #     if model_type == 'mlp':
-    #         objective = self.create_mlp_objective(
-    #             x_train, y_train, x_val, y_val, epochs, use_hardware_metrics, verbose
-    #         )
-    #     elif model_type == 'block':
-    #         objective = self.create_block_objective(
-    #             x_train, y_train, x_val, y_val, epochs, use_hardware_metrics, verbose, one_hot,
-    #         )
-    #     else:
-    #         raise ValueError(f"Model type '{model_type}' not supported. Use 'mlp' or 'block'.")
-
-    #     # Set up optimization directions
-    #     directions = ["maximize" if flag else "minimize" for flag in self.maximize_flags]
-    #     study = optuna.create_study(directions=directions, sampler=optuna.samplers.NSGAIISampler())
-    #     study.optimize(objective, n_trials=n_trials)
-
-    #     self.save_results(model_type, study)
-    #     if verbose:
-    #         self.print_best_trials(study)
-    #     return study
-
     def run_search( # changed so that dataset_kwargs could be accepted
         self,
         model_type='block',
@@ -744,6 +688,7 @@ class GlobalSearchTF:
         use_hardware_metrics=False,
         verbose=True,
         one_hot=False,
+        n_folds=1,
         **dataset_kwargs,  # <-- NEW: forward arbitrary dataset loader args
     ):
         """
@@ -788,7 +733,7 @@ class GlobalSearchTF:
             )
         elif model_type == 'block':
             objective = self.create_block_objective(
-                x_train, y_train, x_val, y_val, epochs, use_hardware_metrics, verbose, one_hot,
+                x_train, y_train, x_val, y_val, epochs, use_hardware_metrics, verbose, one_hot, n_folds,
             )
         else:
             raise ValueError(f"Model type '{model_type}' not supported. Use 'mlp' or 'block'.")
@@ -856,37 +801,6 @@ def sample_dense_block_tf(trial, prefix, search_space):
 
 
 
-
-
-# def run_mlp_search(search_space_path=None, results_dir="./results_tf", n_trials=20, 
-#                   epochs=5, subset_size=5000, resize_val=8, use_hardware_metrics=False):
-#     """
-#     Convenience function to run MLP search with common parameters.
-    
-#     Parameters:
-#         search_space_path: Path to search space YAML
-#         results_dir: Directory for results
-#         n_trials: Number of trials
-#         epochs: Training epochs
-#         subset_size: Dataset subset size
-#         resize_val: Image resize dimension
-#         use_hardware_metrics: Whether to use real hardware metrics
-        
-#     Returns:
-#         tuple: (study, searcher) for further analysis
-#     """
-#     searcher = GlobalSearchTF(search_space_path=search_space_path, results_dir=results_dir)
-    
-#     study = searcher.run_search(
-#         model_type='mlp',
-#         n_trials=n_trials,
-#         epochs=epochs,
-#         subset_size=subset_size,
-#         resize_val=resize_val,
-#         use_hardware_metrics=use_hardware_metrics
-#     )
-    
-#     return study, searcher
 
 def run_mlp_search(
     search_space_path=None,
