@@ -84,6 +84,7 @@ block_types: ["Conv", "MLP", "None"]
 num_blocks: 3
 initial_img_size: 16
 output_dim: 10
+output_activation: "softmax"
 """
 
 with open(SEARCH_SPACE_PATH, 'w') as f:

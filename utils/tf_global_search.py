@@ -277,7 +277,8 @@ class GlobalSearchTF:
             "conv_attn": {"hidden_channel_space": [1, 2, 4, 8, 16, 32]},
             "num_blocks": 3,
             "initial_img_size": 9,
-            "output_dim": 2
+            "output_dim": 2,
+            "output_activation": "softmax"
         }
 
     def get_default_hls_config(self):
@@ -302,10 +303,17 @@ class GlobalSearchTF:
                 else:
                     loss_function = "sparse_categorical_crossentropy"
 
-                current_img_size = img_size
-                current_channels = x_train.shape[-1]
-                is_flattened = False
-                last_layer_units = 0
+                data_is_flat = len(x_train.shape) == 2
+                if data_is_flat:
+                    is_flattened = True
+                    last_layer_units = x_train.shape[1]
+                    current_img_size = 0
+                    current_channels = 0
+                else:
+                    is_flattened = False
+                    last_layer_units = 0
+                    current_img_size = img_size
+                    current_channels = x_train.shape[-1]
                 
                 model_components = []
                 feature_extractor_blocks = []
@@ -370,7 +378,13 @@ class GlobalSearchTF:
                     in_dim = last_layer_units
 
                 mlp_widths, mlp_act_names, mlp_norms = sample_mlp_tf(trial, in_dim, output_dim, "MLP_Head", spaces)
-                
+
+                # Apply output activation from search space config (e.g. "softmax" for classification, "linear" for regression)
+                output_activation = spaces.get("output_activation", "softmax")
+                if output_activation:
+                    mlp_act_names[-1] = output_activation
+                    mlp_norms[-1] = None
+
                 mlp_acts = [get_activation_tf(act) for act in mlp_act_names]
                 classifier_head = build_mlp_from_config_classifier(mlp_widths, mlp_acts, mlp_norms, name='classifier_head')
                 
@@ -380,7 +394,7 @@ class GlobalSearchTF:
                 })
                 bops += estimate_mlp_bops(mlp_widths)
 
-                input_shape = (img_size, img_size, x_train.shape[-1])
+                input_shape = tuple(x_train.shape[1:])
                 model = BlockArchitectureTF(feature_extractor_blocks, classifier_head, input_shape, needs_flattening=(not is_flattened))
 
                 if n_folds > 1:

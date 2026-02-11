@@ -1,10 +1,11 @@
 
 channel_space: [4, 8, 16]
-mlp_width_space: [5, 16, 32, 64]
+mlp_width_space: [5, 16, 42]
 kernel_space: [1, 3, 5]
 act_space: ["ReLU", "GELU", "LeakyRelu"]
 norm_space: [null, "batch"]
 block_types: ["Conv", "MLP", "None"]
-num_blocks: 5
+num_blocks: 3
 initial_img_size: 16
 output_dim: 10
+output_activation: "softmax"
