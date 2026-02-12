@@ -19,6 +19,7 @@ try:
     from .tf_processor import *
     from .tf_visualization import *
     from .tf_global_search import GlobalSearchTF, run_mlp_search, run_deepsets_search
+    from .tf_local_search_combined import combined_local_search_entrypoint
 except ImportError:
     pass  # TensorFlow not available
 
@@ -35,4 +36,5 @@ __all__ = [
     'get_linear_bops_tf', 'get_MLP_bops_tf', 'get_model_bops_tf',
     'plot_pareto_fronts', 'plot_3d_pareto_front_heatmap',
     'GlobalSearchTF', 'run_mlp_search', 'run_deepsets_search',
+    'combined_local_search_entrypoint',
 ]

@@ -226,24 +226,33 @@ def load_and_preprocess_qubit(
 
 def load_generic_dataset(dataset_name, **kwargs):
     """
-    Generic dataset loader that can be extended for different datasets.
-    
+    Generic dataset loader that dispatches to specific dataset preprocessing functions.
+
     Parameters:
         dataset_name (str): Name of the dataset to load
-        **kwargs: Additional arguments specific to each dataset
-    
+        **kwargs: Additional arguments specific to each dataset (passed through)
+
     Returns:
-        Preprocessed dataset
+        tuple: (x_train, y_train, x_val, y_val) - Preprocessed numpy arrays
+
+    To add a new dataset:
+        1. Create a load_and_preprocess_<name>() function above
+        2. Register it in the loaders dict below
+        3. See CUSTOM_DATASETS.md for detailed instructions
     """
     loaders = {
         'mnist': load_and_preprocess_mnist,
-        # Add more datasets here as needed
-        # 'cifar10': load_and_preprocess_cifar10,
         'fashion_mnist': load_and_preprocess_fashion_mnist,
-        'qubit': load_and_preprocess_qubit, # added with new dataset
+        'qubit': load_and_preprocess_qubit,
+        # Add your custom dataset loader here:
+        # 'my_dataset': load_and_preprocess_my_dataset,
     }
-    
+
     if dataset_name not in loaders:
-        raise ValueError(f"Dataset {dataset_name} not supported. Available: {list(loaders.keys())}")
-    
+        raise ValueError(
+            f"Dataset '{dataset_name}' not supported. "
+            f"Available: {list(loaders.keys())}\n"
+            f"See CUSTOM_DATASETS.md for how to add custom datasets."
+        )
+
     return loaders[dataset_name](**kwargs)

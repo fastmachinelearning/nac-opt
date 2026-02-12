@@ -22,6 +22,7 @@ import matplotlib.pyplot as plt
 from utils.tf_global_search import GlobalSearchTF
 from utils.tf_visualization import plot_pareto_fronts, plot_3d_pareto_front_heatmap
 from utils.tf_local_search_separated import local_search_entrypoint
+from utils.tf_local_search_combined import combined_local_search_entrypoint
 from utils.tf_data_preprocessing import load_and_preprocess_qubit
 import seaborn as sns
 
@@ -308,5 +309,55 @@ if isinstance(qat_results_df, pd.DataFrame) and not qat_results_df.empty:
         print("Unexpected qat_results_df columns:", list(qat_results_df.columns))
 else:
     print("No QAT results to plot.")
+
+# %% [markdown]
+# ## Combined Local Search (QAT + Pruning)
+#
+# Instead of running QAT and pruning independently, the combined search applies
+# iterative magnitude pruning to each quantized model. This reveals the full
+# compression landscape: accuracy vs. (sparsity x bit-width).
+
+# %%
+COMBINED_RESULTS_DIR = os.path.join(RESULTS_DIR, "local_search_combined")
+
+combined_results_df = combined_local_search_entrypoint(
+    architecture_yaml_path=ARCHITECTURE_YAML_PATH,
+    local_search_config_path=LOCAL_SEARCH_CONFIG_PATH,
+    dataset=(x_train, y_train, x_test, y_test),
+    results_dir=COMBINED_RESULTS_DIR,
+    n_folds=N_FOLDS,
+)
+
+# %%
+if isinstance(combined_results_df, pd.DataFrame) and not combined_results_df.empty:
+    # Accuracy vs Effective BOPs (one curve per precision)
+    plt.figure(figsize=(12, 7))
+    for prec in combined_results_df["Precision"].unique():
+        subset = combined_results_df[combined_results_df["Precision"] == prec]
+        plt.plot(subset["EffectiveBOPs"], subset["Accuracy"], marker="o", linewidth=2, label=prec)
+    plt.xlabel("Effective BOPs")
+    plt.ylabel("Accuracy")
+    plt.title("Combined QAT + Pruning: Accuracy vs Effective BOPs")
+    plt.legend(title="Precision")
+    plt.xscale("log")
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+
+    # Accuracy vs Sparsity (one curve per precision)
+    plt.figure(figsize=(12, 7))
+    for prec in combined_results_df["Precision"].unique():
+        subset = combined_results_df[combined_results_df["Precision"] == prec]
+        plt.plot(subset["Sparsity"], subset["Accuracy"], marker="o", linewidth=2, label=prec)
+    plt.xlabel("Sparsity")
+    plt.ylabel("Accuracy")
+    plt.title("Combined QAT + Pruning: Accuracy vs Sparsity")
+    plt.legend(title="Precision")
+    plt.gca().invert_xaxis()
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("No combined local search results to plot.")
 
 # %%

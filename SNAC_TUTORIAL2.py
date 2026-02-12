@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 
 from utils.tf_global_search import GlobalSearchTF
 from utils.tf_visualization import plot_pareto_fronts, plot_3d_pareto_front_heatmap
-from utils.tf_local_search_separated import local_search_entrypoint
+from utils.tf_local_search_combined import combined_local_search_entrypoint
 from utils.tf_data_preprocessing import load_and_preprocess_mnist
 from utils.tf_data_preprocessing import load_and_preprocess_fashion_mnist
 import seaborn as sns
@@ -162,3 +162,87 @@ if not results_df_hybrid.empty:
 else:
     print("Hybrid search did not yield any results to analyze.")
 
+# %% [markdown]
+# ## Local Search: Combined QAT + Pruning
+#
+# The combined local search applies iterative magnitude pruning to each quantized
+# model, revealing the full compression landscape: accuracy vs. (sparsity x bit-width).
+
+# %%
+LOCAL_SEARCH_RESULTS_DIR = os.path.join(RESULTS_DIR_HYBRID, "local_search_combined")
+LOCAL_SEARCH_CONFIG_PATH = os.path.join(RESULTS_DIR_HYBRID, "local_search_settings.yaml")
+ARCHITECTURE_YAML_PATH = os.path.join(RESULTS_DIR_HYBRID, "best_model_for_local_search.yaml")
+
+local_search_settings = {
+    "pruning_settings": {
+        "iterations": 5,
+        "epochs_per_iteration": 2,
+        "pruning_rate": 0.8,
+    },
+    "qat_settings": {
+        "epochs": 2,
+        "precision_pairs": [
+            {"total_bits": 16, "int_bits": 6},
+            {"total_bits": 8, "int_bits": 3},
+            {"total_bits": 6, "int_bits": 2},
+            {"total_bits": 4, "int_bits": 1},
+        ],
+    },
+}
+
+with open(LOCAL_SEARCH_CONFIG_PATH, "w") as f:
+    yaml.dump(local_search_settings, f)
+
+# Load dataset (one-hot = True for classification)
+x_train, y_train, x_val, y_val = load_and_preprocess_fashion_mnist(
+    resize_val=RESIZE_VAL,
+    subset_size=SUBSET_SIZE_HYBRID,
+    flatten=False,
+    one_hot=True,
+)
+
+if not os.path.exists(ARCHITECTURE_YAML_PATH):
+    raise FileNotFoundError(
+        f"Could not find best architecture YAML: {ARCHITECTURE_YAML_PATH}. "
+        "Run global search first."
+    )
+
+combined_results_df = combined_local_search_entrypoint(
+    architecture_yaml_path=ARCHITECTURE_YAML_PATH,
+    local_search_config_path=LOCAL_SEARCH_CONFIG_PATH,
+    dataset=(x_train, y_train, x_val, y_val),
+    results_dir=LOCAL_SEARCH_RESULTS_DIR,
+    n_folds=N_FOLDS,
+)
+
+# %%
+if isinstance(combined_results_df, pd.DataFrame) and not combined_results_df.empty:
+    # Accuracy vs Effective BOPs (one curve per precision)
+    plt.figure(figsize=(12, 7))
+    for prec in combined_results_df["Precision"].unique():
+        subset = combined_results_df[combined_results_df["Precision"] == prec]
+        plt.plot(subset["EffectiveBOPs"], subset["Accuracy"], marker="o", linewidth=2, label=prec)
+    plt.xlabel("Effective BOPs")
+    plt.ylabel("Accuracy")
+    plt.title("Combined QAT + Pruning: Accuracy vs Effective BOPs")
+    plt.legend(title="Precision")
+    plt.xscale("log")
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+
+    # Accuracy vs Sparsity (one curve per precision)
+    plt.figure(figsize=(12, 7))
+    for prec in combined_results_df["Precision"].unique():
+        subset = combined_results_df[combined_results_df["Precision"] == prec]
+        plt.plot(subset["Sparsity"], subset["Accuracy"], marker="o", linewidth=2, label=prec)
+    plt.xlabel("Sparsity")
+    plt.ylabel("Accuracy")
+    plt.title("Combined QAT + Pruning: Accuracy vs Sparsity")
+    plt.legend(title="Precision")
+    plt.gca().invert_xaxis()
+    plt.grid(True, linestyle="--", alpha=0.6)
+    plt.tight_layout()
+    plt.show()
+else:
+    print("No combined local search results to plot.")
