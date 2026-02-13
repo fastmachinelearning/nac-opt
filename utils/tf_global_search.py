@@ -5,6 +5,7 @@ import tensorflow as tf
 import pandas as pd
 import numpy as np
 import time
+import datetime
 
 from .tf_model_builder import build_mlp_from_config
 from .tf_processor import train_model, evaluate_model, get_model_metrics
@@ -264,6 +265,12 @@ class GlobalSearchTF:
         self.results = []
         self.objective_names = []
         self.maximize_flags = []
+        # Timestamp for the current run; set at the start of run_search
+        self.run_timestamp = None
+        # Model type for CSV filename; set at the start of run_search
+        self.current_model_type = None
+        # CSV file path for incremental writing; set at the start of run_search
+        self.csv_file_path = None
 
     def get_default_search_space(self):
         return {
@@ -458,6 +465,8 @@ class GlobalSearchTF:
                     result_data['avg_resource'] = avg_resource
                     result_data['clock_cycles'] = clock_cycles
                 self.results.append(result_data)
+                # Write trial to CSV immediately
+                self._append_trial_to_csv(result_data)
 
                 if use_hardware_metrics:
                     return performance_metric, bops, avg_resource, clock_cycles
@@ -605,6 +614,8 @@ class GlobalSearchTF:
                 result_data["avg_resource"] = avg_resource
                 result_data["clock_cycles"] = clock_cycles
             self.results.append(result_data)
+            # Write trial to CSV immediately
+            self._append_trial_to_csv(result_data)
 
             if use_hardware_metrics:
                 return performance_metric, bops, avg_resource, clock_cycles
@@ -702,11 +713,30 @@ class GlobalSearchTF:
         verbose=True,
         one_hot=False,
         n_folds=1,
+        callbacks=None,  # <-- NEW: Optuna callbacks for visualization
+        storage=None,  # <-- NEW: Optuna storage backend (for multi-node)
+        study_name=None,  # <-- NEW: Optuna study name (for multi-node)
         **dataset_kwargs,  # <-- NEW: forward arbitrary dataset loader args
     ):
         """
         Run global search.
         """
+        # Record a timestamp for this run (used in CSV metadata)
+        self.run_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # Store model type and CSV path for incremental writing
+        self.current_model_type = model_type
+        self.csv_file_path = os.path.join(self.results_dir, f"{model_type}_search_results.csv")
+        # Store whether to include hardware metrics for CSV headers
+        self.use_hardware_metrics_for_csv = use_hardware_metrics
+        # Initialize CSV file with headers if it doesn't exist
+        if not os.path.exists(self.csv_file_path):
+            # Create empty DataFrame with expected columns to write headers only
+            columns = ['trial', 'performance_metric', 'bops', 'params', 'yaml_path']
+            if use_hardware_metrics:
+                columns.extend(['avg_resource', 'clock_cycles'])
+            columns.append('run_timestamp')
+            df_headers = pd.DataFrame(columns=columns)
+            df_headers.to_csv(self.csv_file_path, index=False)
         if verbose:
             print(f"\n{'='*50}\nStarting {model_type.upper()} Global Search on {dataset.upper()}\n{'='*50}\n")
 
@@ -753,8 +783,32 @@ class GlobalSearchTF:
 
         # Set up optimization directions
         directions = ["maximize" if flag else "minimize" for flag in self.maximize_flags]
-        study = optuna.create_study(directions=directions, sampler=optuna.samplers.NSGAIISampler())
-        study.optimize(objective, n_trials=n_trials)
+        
+        # Multi-node support, use storage backend
+        if storage is not None:
+            # Storage provided, try to load existing study or create new one
+            try:
+                study = optuna.load_study(study_name=study_name, storage=storage)
+                if verbose:
+                    print(f"Loaded existing Optuna study: {study_name}")
+            except KeyError:
+                # Study doesn't exist, create it
+                study = optuna.create_study(
+                    directions=directions,
+                    sampler=optuna.samplers.NSGAIISampler(),
+                    storage=storage,
+                    study_name=study_name
+                )
+                if verbose:
+                    print(f"Created new Optuna study: {study_name}")
+        else:
+            # No storage - single-node in-memory study
+            study = optuna.create_study(directions=directions, sampler=optuna.samplers.NSGAIISampler())
+            if verbose:
+                print("Using in-memory Optuna study (single-node mode)")
+        
+        study.optimize(objective, n_trials=n_trials, callbacks=callbacks)
+
 
         self.save_results(model_type, study)
         if verbose:
@@ -763,11 +817,33 @@ class GlobalSearchTF:
 
 
 
+    def _append_trial_to_csv(self, result_data):
+        """Append a single trial result to the CSV file incrementally."""
+        if self.csv_file_path is None:
+            return  # CSV not initialized yet
+        
+        # Add timestamp to this trial's data
+        trial_data = result_data.copy()
+        if self.run_timestamp is not None:
+            trial_data['run_timestamp'] = self.run_timestamp
+        
+        # Convert to DataFrame and append to CSV (no header since it's already written)
+        df_trial = pd.DataFrame([trial_data])
+        # Check if file exists and has content to determine if we need headers
+        file_exists = os.path.exists(self.csv_file_path)
+        write_header = not file_exists or os.path.getsize(self.csv_file_path) == 0
+        df_trial.to_csv(self.csv_file_path, mode='a', header=write_header, index=False)
+    
     def save_results(self, model_type, study):
+        # Results are already written incrementally, but we can verify/update the final CSV
         df = pd.DataFrame(self.results)
+        # Add a run-level timestamp column so you can track when this CSV was generated
+        if self.run_timestamp is not None:
+            df["run_timestamp"] = self.run_timestamp
         csv_file = os.path.join(self.results_dir, f"{model_type}_search_results.csv")
+        # Overwrite with complete data (ensures consistency if something went wrong)
         df.to_csv(csv_file, index=False)
-        print(f"\nCSV results saved to {csv_file}")
+        print(f"\nCSV results saved to {csv_file} ({len(df)} trials)")
 
         # --- NEW: Select and save the best model for local search ---
         if df.empty:

@@ -159,9 +159,21 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
     qat_config = config["qat_settings"]
 
     # Build fold splits
+    # Check if validation data is empty (for CV scenarios where val is intentionally empty)
+    # Handle various empty cases: None, empty array, or array with 0 samples
+    try:
+        has_validation = x_val is not None and (hasattr(x_val, '__len__') and len(x_val) > 0)
+    except (TypeError, AttributeError):
+        has_validation = False
+    
     if n_folds > 1:
-        x_all = np.concatenate([x_train, x_val], axis=0)
-        y_all = np.concatenate([y_train, y_val], axis=0)
+        if has_validation:
+            x_all = np.concatenate([x_train, x_val], axis=0)
+            y_all = np.concatenate([y_train, y_val], axis=0)
+        else:
+            # If validation is empty, use only training data for CV
+            x_all = x_train
+            y_all = y_train
         one_hot = len(y_all.shape) > 1 and y_all.shape[1] > 1
         fold_splits = _stratified_k_fold_indices(y_all, n_folds, one_hot=one_hot)
     else:
@@ -392,6 +404,11 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                 steps_per_epoch = max(1, len(x_train) // batch_size)
                 pruning_frequency = max(1, steps_per_epoch // 2)
 
+                # Check if validation data is empty (for CV scenarios where val is intentionally empty)
+                # Use the same robust check as defined at top level
+                eval_data = (x_val, y_val) if has_validation else (x_train, y_train)
+                eval_label = "val" if has_validation else "train"
+
                 # Step 1: Convert FP32 model to QKeras
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore")
@@ -404,25 +421,27 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                 print(f"  QAT warmup ({qat_config['epochs']} epochs)...", end="", flush=True)
                 training_log.write(f"\n--- QAT Warmup ({qat_config['epochs']} epochs) ---\n")
                 training_log.flush()
+                fit_kwargs = {
+                    "x": x_train,
+                    "y": y_train,
+                    "epochs": qat_config["epochs"],
+                    "batch_size": batch_size,
+                    "verbose": 1,
+                }
+                if has_validation:
+                    fit_kwargs["validation_data"] = (x_val, y_val)
                 with _QuietTraining(training_log):
-                    qat_model.fit(
-                        x_train,
-                        y_train,
-                        validation_data=(x_val, y_val),
-                        epochs=qat_config["epochs"],
-                        batch_size=batch_size,
-                        verbose=1,
-                    )
+                    qat_model.fit(**fit_kwargs)
 
                 # Step 3: Save QAT-trained weights as LTH checkpoint
                 original_weights = qat_model.get_weights()
 
                 # Step 4: Evaluate baseline (iteration 0 = QAT only, no pruning)
-                _, val_acc_baseline = qat_model.evaluate(x_val, y_val, verbose=0)
+                _, val_acc_baseline = qat_model.evaluate(eval_data[0], eval_data[1], verbose=0)
                 effective_bops_baseline = _compute_effective_bops(baseline_bops, total_bits, sparsity=0.0)
-                print(f" accuracy={val_acc_baseline:.4f}, eff_bops={effective_bops_baseline:.2e}")
+                print(f" accuracy={val_acc_baseline:.4f} ({eval_label}), eff_bops={effective_bops_baseline:.2e}")
                 training_log.write(
-                    f"Baseline: accuracy={val_acc_baseline:.4f}, eff_bops={effective_bops_baseline:.2e}\n"
+                    f"Baseline ({eval_label}): accuracy={val_acc_baseline:.4f}, eff_bops={effective_bops_baseline:.2e}\n"
                 )
 
                 row = {
@@ -465,22 +484,24 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                         f"(target sparsity={target_sparsity:.4f}) ---\n"
                     )
                     training_log.flush()
+                    fit_kwargs = {
+                        "x": x_train,
+                        "y": y_train,
+                        "epochs": pruning_config["epochs_per_iteration"],
+                        "batch_size": batch_size,
+                        "callbacks": [tfmot.sparsity.keras.UpdatePruningStep()],
+                        "verbose": 1,
+                    }
+                    if has_validation:
+                        fit_kwargs["validation_data"] = (x_val, y_val)
                     with _QuietTraining(training_log):
-                        pruned_model.fit(
-                            x_train,
-                            y_train,
-                            validation_data=(x_val, y_val),
-                            epochs=pruning_config["epochs_per_iteration"],
-                            batch_size=batch_size,
-                            callbacks=[tfmot.sparsity.keras.UpdatePruningStep()],
-                            verbose=1,
-                        )
+                        pruned_model.fit(**fit_kwargs)
 
                     with tf.keras.utils.custom_object_scope(co):
                         model_stripped = tfmot.sparsity.keras.strip_pruning(pruned_model)
                     model_stripped.compile(optimizer="adam", loss=loss_function, metrics=["accuracy"])
 
-                    _, val_acc = model_stripped.evaluate(x_val, y_val, verbose=0)
+                    _, val_acc = model_stripped.evaluate(eval_data[0], eval_data[1], verbose=0)
                     actual_sparsity = _compute_model_sparsity(model_stripped)
                     effective_bops = _compute_effective_bops(baseline_bops, total_bits, actual_sparsity)
 
@@ -488,11 +509,11 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                     print(
                         f"  Iter {i + 1:>{len(str(n_iterations))}}"
                         f"/{n_iterations}:"
-                        f" acc={val_acc:.4f}  sparsity={actual_sparsity:.4f}"
+                        f" acc={val_acc:.4f} ({eval_label})  sparsity={actual_sparsity:.4f}"
                         f"  eff_bops={effective_bops:.2e}{best_marker}"
                     )
                     training_log.write(
-                        f"Result: accuracy={val_acc:.4f}, sparsity={actual_sparsity:.4f}, "
+                        f"Result ({eval_label}): accuracy={val_acc:.4f}, sparsity={actual_sparsity:.4f}, "
                         f"eff_bops={effective_bops:.2e}\n"
                     )
 
