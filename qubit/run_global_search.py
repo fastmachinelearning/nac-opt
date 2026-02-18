@@ -90,7 +90,7 @@ def parse_args():
     )
     
     # Search parameters
-    parser.add_argument('--n_trials', type=int, default=3,
+    parser.add_argument('--n_trials', type=int, default=4,
                         help='Number of trials to run')
     parser.add_argument('--epochs', type=int, default=2,
                         help='Number of training epochs per trial')
@@ -100,7 +100,8 @@ def parse_args():
     # Dataset parameters
     parser.add_argument('--subset_size', type=int, default=1000000,
                         help='Subset size for training data')
-    parser.add_argument('--data_dir', type=str, default='../qubit/data',
+    parser.add_argument('--data_dir', type=str,
+                        default=os.path.join(os.environ.get("SCRATCH", ""), "qubit_data") if os.environ.get("SCRATCH") else "../qubit/data",
                         help='Directory containing qubit data files')
     parser.add_argument('--start_location', type=int, default=100,
                         help='Start location for data windowing')
@@ -112,7 +113,7 @@ def parse_args():
     # Paths
     parser.add_argument('--search_space_path', type=str, default='qubit_search_space.yaml',
                         help='Path to search space YAML file')
-    parser.add_argument('--results_dir', type=str, default='./results/global_search',
+    parser.add_argument('--results_dir', type=str, default='./results/node_test_6',
                         help='Directory to save results')
     
     # Objectives
@@ -251,6 +252,10 @@ def run_search(args):
         print(f"  Mode: Single-node (in-memory)")
     if is_slurm:
         print(f"  SLURM Info: {node_info}")
+        # Per-worker line: confirms this process is on one of the allocated nodes
+        import socket
+        proc_id = os.environ.get("SLURM_PROCID", os.environ.get("SLURM_LOCALID", "?"))
+        print(f"  This worker: hostname={socket.gethostname()}, task_id={proc_id}")
     print("=" * 70 + "\n")
     
     # Initialize searcher

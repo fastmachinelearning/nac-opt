@@ -20,4 +20,14 @@ rich==13.9.4
 rule4ml==0.2.0
 scikit-image==0.25.2
 seaborn==0.13.2
-# torchvision==0.21.0
+torchvision==0.21.0
+
+# python -m pip install \
+#   "tensorflow==2.15.1" \
+#   "keras==2.15.0" \
+#   "tensorboard==2.15.2" \
+#   "protobuf==4.25.8" \
+#   "ml-dtypes==0.3.2" \
+#   "tensorflow-estimator==2.15.0" \
+#   "tensorflow-io-gcs-filesystem==0.37.1" \
+#   "tensorflow-model-optimization==0.7.5"

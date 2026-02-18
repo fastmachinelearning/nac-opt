@@ -725,7 +725,12 @@ class GlobalSearchTF:
         self.run_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         # Store model type and CSV path for incremental writing
         self.current_model_type = model_type
-        self.csv_file_path = os.path.join(self.results_dir, f"{model_type}_search_results.csv")
+        # Multi-node: each worker writes its own CSV to avoid append races; merge after job
+        if storage is not None:
+            rank = os.environ.get("SLURM_PROCID", "0")
+            self.csv_file_path = os.path.join(self.results_dir, f"{model_type}_search_results_rank{rank}.csv")
+        else:
+            self.csv_file_path = os.path.join(self.results_dir, f"{model_type}_search_results.csv")
         # Store whether to include hardware metrics for CSV headers
         self.use_hardware_metrics_for_csv = use_hardware_metrics
         # Initialize CSV file with headers if it doesn't exist
@@ -822,44 +827,38 @@ class GlobalSearchTF:
         if self.csv_file_path is None:
             return  # CSV not initialized yet
         
-        # Add timestamp to this trial's data
         trial_data = result_data.copy()
         if self.run_timestamp is not None:
             trial_data['run_timestamp'] = self.run_timestamp
         
-        # Convert to DataFrame and append to CSV (no header since it's already written)
         df_trial = pd.DataFrame([trial_data])
-        # Check if file exists and has content to determine if we need headers
         file_exists = os.path.exists(self.csv_file_path)
         write_header = not file_exists or os.path.getsize(self.csv_file_path) == 0
         df_trial.to_csv(self.csv_file_path, mode='a', header=write_header, index=False)
     
     def save_results(self, model_type, study):
-        # Results are already written incrementally, but we can verify/update the final CSV
+        # Results are already written incrementally; overwrite with full in-memory data for this worker
         df = pd.DataFrame(self.results)
-        # Add a run-level timestamp column so you can track when this CSV was generated
         if self.run_timestamp is not None:
             df["run_timestamp"] = self.run_timestamp
-        csv_file = os.path.join(self.results_dir, f"{model_type}_search_results.csv")
-        # Overwrite with complete data (ensures consistency if something went wrong)
-        df.to_csv(csv_file, index=False)
-        print(f"\nCSV results saved to {csv_file} ({len(df)} trials)")
+        # Use self.csv_file_path (rank-specific in multi-node, single file in single-node)
+        csv_file = self.csv_file_path
+        if csv_file:
+            df.to_csv(csv_file, index=False)
+            print(f"\nCSV results saved to {csv_file} ({len(df)} trials)")
 
-        # --- NEW: Select and save the best model for local search ---
+        # Best model: only in single-node (multi-node merge step will create it from merged CSV)
+        if "_rank" in (csv_file or ""):
+            return
         if df.empty:
             print("No successful trials to select a best model from.")
             return
 
-        # Selection criteria: highest performance_metric (accuracy)
         best_trial_row = df.loc[df['performance_metric'].idxmax()]
         best_trial_yaml_path = best_trial_row['yaml_path']
-        
         destination_path = os.path.join(self.results_dir, "best_model_for_local_search.yaml")
-        
-        # Copy the best trial's YAML to the standardized filename
         import shutil
         shutil.copy(best_trial_yaml_path, destination_path)
-        
         print(f"\n🏆 Best model architecture (Trial {best_trial_row['trial']}) saved for local search:")
         print(f"   - Source: {best_trial_yaml_path}")
         print(f"   - Destination: {destination_path}")

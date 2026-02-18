@@ -29,6 +29,10 @@ Results/
 plots/
 hybrid_search_space.yaml
 
+# SLURM / job logs
+*.out
+*.err
+
 # OS
 .DS_Store
 
