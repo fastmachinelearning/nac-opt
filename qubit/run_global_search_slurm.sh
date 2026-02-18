@@ -3,6 +3,8 @@
 #SBATCH --nodes=4                    # Number of nodes being requested for the job
 #SBATCH --ntasks-per-node=1          # One task per node
 #SBATCH --cpus-per-task=8            # CPUs per task
+#SBATCH --gres=gpu:nvidia_l40s:1 # check
+#SBATCH --partition=gpu # check
 #SBATCH --time=48:00:00              # Time limit
 #SBATCH --mem=32G                    # Memory per node
 #SBATCH --output=qubit_optuna_%j.out  # Output file

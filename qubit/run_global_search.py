@@ -90,9 +90,9 @@ def parse_args():
     )
     
     # Search parameters
-    parser.add_argument('--n_trials', type=int, default=3,
+    parser.add_argument('--n_trials', type=int, default=50,
                         help='Number of trials to run')
-    parser.add_argument('--epochs', type=int, default=2,
+    parser.add_argument('--epochs', type=int, default=5,
                         help='Number of training epochs per trial')
     parser.add_argument('--n_folds', type=int, default=1,
                         help='Number of folds for cross-validation (1 = no CV)')

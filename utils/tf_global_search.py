@@ -682,7 +682,8 @@ class GlobalSearchTF:
                 bram = results.get("BRAM (%)", 0)
                 dsp = results.get("DSP (%)", 0)
                 avg_resource = np.mean([lut, ff, bram, dsp])
-                clock_cycles = results.get('CYCLES', 1e9) # High default
+                # Rule4ML may return 'CYCLES' or 'Cycles' depending on version
+                clock_cycles = results.get('CYCLES', results.get('Cycles', 1e9))
             else:
                 print("Warning: Hardware estimation failed to return results. Returning high-penalty default values.")
                 avg_resource = 100.0

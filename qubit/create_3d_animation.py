@@ -2,11 +2,15 @@
 Create a cumulative 3D animation showing search progress.
 Each frame shows all trials up to that point.
 """
+import os
+import subprocess
+import tempfile
 import pandas as pd
 import plotly.graph_objects as go
 
 def create_cumulative_3d_animation(results_df, x_col='avg_resource', y_col='clock_cycles', 
-                                   z_col='performance_metric', color_col='bops'):
+                                   z_col='performance_metric', color_col='bops',
+                                   z_range=None, x_range=None, y_range=None):
     """
     Create a 3D animated scatter plot where each frame cumulatively adds trials.
     
@@ -18,6 +22,8 @@ def create_cumulative_3d_animation(results_df, x_col='avg_resource', y_col='cloc
         Column names for x, y, z axes
     color_col : str
         Column name for marker color
+    z_range, x_range, y_range : tuple (min, max) or None
+        Fixed axis range; if None, use data min/max with padding
     """
     # Sort by trial number to ensure correct order
     results_df = results_df.sort_values('trial').reset_index(drop=True)
@@ -94,6 +100,19 @@ def create_cumulative_3d_animation(results_df, x_col='avg_resource', y_col='cloc
     else:
         x_min = x_max = y_min = y_max = z_min = z_max = 0
     
+    if x_range is not None:
+        x_min, x_max = x_range[0], x_range[1]
+    else:
+        x_min, x_max = x_min * 0.9, x_max * 1.1
+    if y_range is not None:
+        y_min, y_max = y_range[0], y_range[1]
+    else:
+        y_min, y_max = y_min * 0.9, y_max * 1.1
+    if z_range is not None:
+        z_min, z_max = z_range[0], z_range[1]
+    else:
+        z_min, z_max = z_min * 0.95, z_max * 1.05
+    
     fig = go.Figure(
         data=[
             go.Scatter3d(
@@ -125,9 +144,9 @@ def create_cumulative_3d_animation(results_df, x_col='avg_resource', y_col='cloc
         frames=frames,
         layout=go.Layout(
             scene=dict(
-                xaxis=dict(title=x_col.replace('_', ' ').title(), range=[x_min * 0.9, x_max * 1.1]),
-                yaxis=dict(title=y_col.replace('_', ' ').title(), range=[y_min * 0.9, y_max * 1.1]),
-                zaxis=dict(title=z_col.replace('_', ' ').title(), range=[z_min * 0.95, z_max * 1.05]),
+                xaxis=dict(title=x_col.replace('_', ' ').title(), range=[x_min, x_max]),
+                yaxis=dict(title=y_col.replace('_', ' ').title(), range=[y_min, y_max]),
+                zaxis=dict(title=z_col.replace('_', ' ').title(), range=[z_min, z_max]),
             ),
             title=dict(
                 text=f'Global Search Progress (3D): {z_col.replace("_", " ").title()} vs {x_col.replace("_", " ").title()} vs {y_col.replace("_", " ").title()}<br><sub>Use slider or Play button to see progression</sub>',
@@ -199,6 +218,94 @@ def create_cumulative_3d_animation(results_df, x_col='avg_resource', y_col='cloc
     )
     
     return fig
+
+
+def animation_to_video(fig, path, fps=2, width=None, height=None):
+    """
+    Export a Plotly figure with frames to an MP4 video.
+
+    Renders each frame to a PNG (requires kaleido), then stitches with ffmpeg.
+    Install: pip install kaleido. ffmpeg must be on PATH.
+
+    Parameters
+    ----------
+    fig : go.Figure
+        Figure returned by create_cumulative_3d_animation (must have .frames).
+    path : str
+        Output path, e.g. "search_animation.mp4".
+    fps : float
+        Frames per second in the output video.
+    width, height : int or None
+        Image size for each frame; default uses fig.layout.height (height=700).
+    """
+    if not hasattr(fig, "frames") or not fig.frames:
+        raise ValueError("Figure has no frames; use create_cumulative_3d_animation first.")
+    try:
+        from kaleido import write_fig_sync
+    except ImportError:
+        write_fig_sync = None
+    try:
+        from kaleido.scopes.plotly import PlotlyScope
+        _scope_0x = PlotlyScope()
+    except Exception:
+        _scope_0x = None
+    if write_fig_sync is None and _scope_0x is None:
+        raise ImportError(
+            "kaleido is required for video export. In a notebook cell run:\n"
+            "  !pip install kaleido==0.2.1\n"
+            "Then use Kernel → Restart, and run this cell again."
+        ) from None
+    h = height or (fig.layout.height or 700)
+    w = width or int(h * 1.2)
+    _chrome_msg = (
+        "Kaleido 1.x needs Chrome/Chromium. Use the no-Chrome bundle instead. In a notebook cell run:\n"
+        "  !pip install kaleido==0.2.1\n"
+        "Then Kernel → Restart and run this cell again."
+    )
+
+    def _export_frame(one, path):
+        if write_fig_sync is not None:
+            write_fig_sync(one, path=path)
+        else:
+            with open(path, "wb") as f:
+                f.write(_scope_0x.transform(one, format="png"))
+
+    with tempfile.TemporaryDirectory() as tmp:
+        pattern = os.path.join(tmp, "frame_%04d.png")
+        for i, frame in enumerate(fig.frames):
+            one = go.Figure(
+                data=frame.data,
+                layout=go.Layout(
+                    template=fig.layout.template,
+                    scene=fig.layout.scene,
+                    title=fig.layout.title,
+                    height=h,
+                    width=w,
+                    margin=fig.layout.margin,
+                    showlegend=False,
+                ),
+            )
+            try:
+                _export_frame(one, pattern % i)
+            except Exception as e:
+                err = e.__class__.__name__
+                if err == "ChromeNotFoundError" or "chrome" in str(e).lower():
+                    raise RuntimeError(_chrome_msg) from e
+                if "kaleido" in str(e).lower() or "engine" in str(e).lower():
+                    raise RuntimeError(_chrome_msg) from e
+                raise
+        cmd = [
+            "ffmpeg", "-y", "-framerate", str(fps),
+            "-i", os.path.join(tmp, "frame_%04d.png"),
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            path,
+        ]
+        out = subprocess.run(cmd, capture_output=True, text=True)
+        if out.returncode != 0:
+            raise RuntimeError(
+                "ffmpeg failed. Install ffmpeg and ensure it is on PATH.\n" + (out.stderr or out.stdout or "")
+            )
+
 
 # Usage example:
 # results_df = pd.DataFrame(searcher.results)
