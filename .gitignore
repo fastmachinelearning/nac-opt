@@ -19,6 +19,7 @@ qubit/data/fpga_testing/
 qubit/data/qick_data/
 qubit/checkpoints/
 qubit/results/
+qubit/figs/
 
 # Saved models
 saved_models/
