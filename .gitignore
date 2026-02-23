@@ -38,3 +38,5 @@ hybrid_search_space.yaml
 
 # Local exp
 race_try1.py
+
+qubit/figs/
