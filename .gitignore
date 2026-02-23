@@ -30,8 +30,14 @@ Results/
 plots/
 hybrid_search_space.yaml
 
+# SLURM / job logs
+*.out
+*.err
+
 # OS
 .DS_Store
 
 # Local exp
 race_try1.py
+
+qubit/figs/
