@@ -1,15 +1,15 @@
 #!/bin/bash
 #SBATCH --job-name=qubit_optuna
 #SBATCH --account=amsc011            # Project/account name
-#SBATCH --nodes=8                    # Number of nodes being requested for the job
+#SBATCH --nodes=4                    # Number of nodes being requested for the job
 #SBATCH --ntasks-per-node=1          # One task per node
-#SBATCH --cpus-per-task=1            # CPUs per task
-#SBATCH --time=30:00                 # Time limit
+#SBATCH --cpus-per-task=8            # CPUs per task (same charge; speeds up each trial)
+#SBATCH --time=1:00:00                 # Time limit
 #SBATCH --constraint=cpu             # Perlmutter CPU nodes (required at NERSC)
 #SBATCH --mem=16G                    # Memory per node (increase if OOM)
 #SBATCH --output=qubit_optuna_%j.out # Output file
 #SBATCH --error=qubit_optuna_%j.err  # Error file
-#SBATCH --qos=debug
+#SBATCH --qos=regular
 
 
 # Example SLURM script for multi-node Optuna global search
@@ -82,8 +82,8 @@ except optuna.exceptions.DuplicatedStudyError:
 # Pass storage and study name on the command line so all workers use the shared DB
 # --output=...%t sends each task's stdout to a separate file so you can verify both nodes ran
 srun --output=qubit_optuna_%j_task_%t.out python run_global_search.py \
-    --n_trials 3 \
-    --epochs 2 \
+    --n_trials 5 \
+    --epochs 3 \
     --n_folds 1 \
     --subset_size 1000000 \
     --model_type block \
