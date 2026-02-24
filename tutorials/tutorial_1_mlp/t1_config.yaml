@@ -13,9 +13,9 @@ search:
   model_type: mlp
   n_trials: 3
   epochs: 2
-  use_hardware_metrics: false
-  objective_names: [performance_metric, bops]
-  maximize_flags: [true, false]
+  use_hardware_metrics: true
+  objective_names: [performance_metric, bops, avg_resource, clock_cycles]
+  maximize_flags: [true, false, false, false]
 
 search_space:
   mlp_width_space: [8, 16, 32, 64, 128]
