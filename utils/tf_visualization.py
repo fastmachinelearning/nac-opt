@@ -88,7 +88,7 @@ def get_pareto_front_indices(df, objectives_info):
     return df.index[is_pareto].tolist()
 
 
-def plot_pareto_fronts(df, objective_info, save_dir="."):
+def plot_pareto_fronts(df, objective_info, save_dir=".", show=False):
     """
     Plots all pairwise combinations of objectives.
     objective_info is a list of tuples (name, maximize), where maximize is a boolean.
@@ -131,11 +131,14 @@ def plot_pareto_fronts(df, objective_info, save_dir="."):
     plt.tight_layout()
     save_path = os.path.join(save_dir, "pareto_fronts_2d.png")
     plt.savefig(save_path)
+    if show:
+        plt.show()
+    else:
+        plt.close()
     print(f"2D Pareto fronts plot saved to {save_path}")
-    plt.show()
 
 
-def plot_3d_pareto_front_heatmap(df, objectives_info, save_dir="."):
+def plot_3d_pareto_front_heatmap(df, objectives_info, save_dir=".", show=False):
     """
     Plots a 3D scatter plot using the first three objectives as axes
     and the fourth objective as a heat map (color).
@@ -216,12 +219,13 @@ def plot_3d_pareto_front_heatmap(df, objectives_info, save_dir="."):
     
     save_path = os.path.join(save_dir, "pareto_front_3d.html")
     fig.write_html(save_path)
+    if show:
+        fig.show()
     print(f"3D Pareto front plot saved to {save_path}")
-    fig.show()
 
 
 
-def plot_interactive_2d_pareto(df, objective_info, save_dir="."):
+def plot_interactive_2d_pareto(df, objective_info, save_dir=".", show=False):
     """
     Plots an interactive 2D Pareto front for the first two objectives using Plotly.
     When you hover over a point, it displays the trial number and objective values.
@@ -303,5 +307,8 @@ def plot_interactive_2d_pareto(df, objective_info, save_dir="."):
     # --- Save the plot as an HTML file and display it ---
     save_path = os.path.join(save_dir, "interactive_pareto_front_2d.html")
     fig.write_html(save_path)
+    if show:
+        fig.show()
     print(f"Interactive 2D Pareto front plot saved to {save_path}")
-    fig.show()
+
+

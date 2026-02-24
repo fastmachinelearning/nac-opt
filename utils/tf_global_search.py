@@ -12,6 +12,7 @@ from .tf_processor import train_model, evaluate_model, get_model_metrics
 from .tf_bops import get_MLP_bops_tf, estimate_conv_bops, estimate_attention_bops, estimate_mlp_bops
 from .tf_blocks import ConvAttentionBlock
 from .tf_data_preprocessing import load_generic_dataset
+from .tf_visualization import plot_pareto_fronts, plot_3d_pareto_front_heatmap
 
 # Helper function to save architecture to YAML
 def _save_architecture_to_yaml(model_details, file_path):
@@ -256,7 +257,11 @@ class GlobalSearchTF:
     def __init__(self, search_space_path=None, hls_config=None, results_dir="./results_tf"):
         self.results_dir = results_dir
         os.makedirs(results_dir, exist_ok=True)
-        if search_space_path and os.path.exists(search_space_path):
+        self.trials_dir = os.path.join(results_dir, "trial_yamls")
+        os.makedirs(self.trials_dir, exist_ok=True)
+        if isinstance(search_space_path, dict):
+            self.search_space = search_space_path
+        elif search_space_path and os.path.exists(search_space_path):
             with open(search_space_path, 'r') as f:
                 self.search_space = yaml.safe_load(f)
         else:
@@ -443,7 +448,7 @@ class GlobalSearchTF:
                         'components': model_components
                     }
                 }
-                trial_yaml_path = os.path.join(self.results_dir, f"trial_{trial.number}_arch.yaml")
+                trial_yaml_path = os.path.join(self.trials_dir, f"trial_{trial.number}_arch.yaml")
                 _save_architecture_to_yaml(model_details, trial_yaml_path)
                 
                 if verbose:
@@ -591,7 +596,7 @@ class GlobalSearchTF:
                 },
             }
 
-            trial_yaml_path = os.path.join(self.results_dir, f"trial_{trial.number}_arch.yaml")
+            trial_yaml_path = os.path.join(self.trials_dir, f"trial_{trial.number}_arch.yaml")
             _save_architecture_to_yaml(model_details, trial_yaml_path)
             # --- END REPLACEMENT ---
 
@@ -775,6 +780,16 @@ class GlobalSearchTF:
             **loader_kwargs,
         )
 
+        # Validate search space compatibility with hardware metrics
+        if use_hardware_metrics and model_type == 'block':
+            block_types = self.search_space.get("block_types", [])
+            if "ConvAttn" in block_types:
+                raise ValueError(
+                    "ConvAttn blocks are not supported by rule4ml and cannot be used with "
+                    "use_hardware_metrics=True. Remove 'ConvAttn' from block_types in your "
+                    "search space, or set use_hardware_metrics=False."
+                )
+
         # MODIFICATION: Select the correct objective function
         if model_type == 'mlp':
             objective = self.create_mlp_objective(
@@ -864,6 +879,12 @@ class GlobalSearchTF:
         print(f"   - Source: {best_trial_yaml_path}")
         print(f"   - Destination: {destination_path}")
         print(f"   - Accuracy: {best_trial_row['performance_metric']:.4f}")
+
+        # Plot all pairwise Pareto fronts; add 3D heatmap when hardware metrics are enabled
+        obj_info = list(zip(self.objective_names, self.maximize_flags))
+        plot_pareto_fronts(df, obj_info, save_dir=self.results_dir)
+        if len(self.objective_names) >= 4:
+            plot_3d_pareto_front_heatmap(df, obj_info, save_dir=self.results_dir)
 
 
     def print_best_trials(self, study):

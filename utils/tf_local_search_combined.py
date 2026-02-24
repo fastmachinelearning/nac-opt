@@ -236,7 +236,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                         warnings.simplefilter("ignore")
                         qat_model = convert_to_qat_model(base_model, total_bits, int_bits)
 
-                    qat_optimizer = tf.keras.optimizers.Adam(learning_rate=5e-5)
+                    qat_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
                     qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=["accuracy"])
 
                     print(f"  Fold {fold_idx + 1}/{n_folds}: QAT warmup...", end="", flush=True)
@@ -415,7 +415,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                     qat_model = convert_to_qat_model(base_model, total_bits, int_bits)
 
                 # Step 2: QAT warmup
-                qat_optimizer = tf.keras.optimizers.Adam(learning_rate=5e-5)
+                qat_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
                 qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=["accuracy"])
 
                 print(f"  QAT warmup ({qat_config['epochs']} epochs)...", end="", flush=True)

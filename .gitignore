@@ -6,29 +6,22 @@ env/
 *.pyc
 __pycache__/
 
-# Data
-data/frames-exp4train.hdf5
-data/peaks-exp4train-psz11.hdf5
-data/normalized_data3/
-data/normalized_data3-20240423T200227Z-001.zip
-data/normalized_data3-20240430T145906Z-001.zip
+# Jupyter
+.ipynb_checkpoints/
 
-# Qubit tutorial data and models
-qubit/data/*.npy
-qubit/data/fpga_testing/
-qubit/data/qick_data/
-qubit/checkpoints/
-qubit/results/
-qubit/figs/
+# Tutorial outputs (search results, CSVs, trial YAMLs, plots, local search weights)
+tutorials/*/results/
 
-# Saved models
+# Saved model weights
+*.h5
+*.weights.h5
+*.keras
 saved_models/
-
-# Outputs / plots
 results/
-Results/
-plots/
-hybrid_search_space.yaml
+
+# Optuna storage
+*.db
+optuna/
 
 # SLURM / job logs
 *.out
@@ -37,7 +30,5 @@ hybrid_search_space.yaml
 # OS
 .DS_Store
 
-# Local exp
-race_try1.py
-
-qubit/figs/
+# Qubit data (large .npy files)
+data/qubit/*.npy
