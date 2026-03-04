@@ -34,8 +34,7 @@ import matplotlib.pyplot as plt
 from utils.tf_global_search import GlobalSearchTF
 from utils.tf_local_search_combined import combined_local_search_entrypoint
 from utils.tf_data_preprocessing import load_and_preprocess_qubit
-
-tf.get_logger().setLevel('ERROR')
+from utils.tf_synthesis import run_synthesis_from_config
 
 # ── Config ────────────────────────────────────────────────────────────────────
 cfg = yaml.safe_load(open(Path(__file__).parent / "t3_config.yaml"))
@@ -184,5 +183,26 @@ if isinstance(combined_df, pd.DataFrame) and not combined_df.empty:
     plt.close()
 else:
     print("No combined local search results to plot.")
+
+# ── Synthesis (hls4ml) ─────────────────────────────────────────────────────────
+# Load best model at config precision and build HLS project (no compile/synthesis run here).
+syn_cfg = cfg.get("synthesis", {})
+if syn_cfg:
+    print("\n" + "="*50)
+    print("Synthesis: Building hls4ml project from best local-search model")
+    print("="*50 + "\n")
+    try:
+        model, input_shape, hls_model = run_synthesis_from_config(
+            config=cfg,
+            results_dir=RESULTS_DIR,
+            base_dir=_tutorial_dir,
+        )
+        print(f"Loaded model at {syn_cfg['total_bits']}b{syn_cfg['int_bits']}i.")
+        print(f"HLS project written to: {syn_cfg['hls_output_dir']}")
+        print("To generate HLS or run full synthesis, use: hls_model.compile() or hls_model.build()")
+    except FileNotFoundError as e:
+        print(f"Synthesis skipped: {e}")
+else:
+    print("No synthesis config; skipping hls4ml build.")
 
 print("\nTutorial 3 complete.")

@@ -127,32 +127,63 @@ class _QuietTraining:
 
 def run_combined_search(base_model, dataset, config, results_dir, loss_function, n_folds=1):
     """
-    Combined QAT + iterative magnitude pruning loop.
+    Run a combined QAT + iterative magnitude pruning local search over precisions.
 
-    For each quantization precision:
-      1. Convert FP32 model to QKeras model
-      2. QAT warmup (fine-tune with quantization constraints)
-      3. Save trained weights as LTH checkpoint
-      4. Iteratively prune with LTH weight rewinding
+    For each quantization precision pair in ``config['qat_settings']['precision_pairs']``:
 
-    When ``n_folds > 1``, train and val data are concatenated and split into
-    stratified folds. Each fold gets a fresh QAT model and independent pruning
-    trajectory; reported accuracy at each iteration is the mean across folds.
+    1. Convert the FP32 ``base_model`` to a QKeras QAT model.
+    2. Perform QAT warmup (fine-tuning under quantization constraints).
+    3. Save the warm-start weights as a lottery-ticket checkpoint.
+    4. Run an iterative magnitude pruning loop with weight rewinding.
 
-    Full training logs are saved to ``training_log.txt`` in results_dir.
-    Console output shows only a compact summary per step.
+    When ``n_folds > 1``, training and validation splits are concatenated and
+    re-split into stratified folds using ``_stratified_k_fold_indices``. Each
+    fold gets its own QAT + pruning trajectory; reported accuracies and
+    sparsities at each iteration are averaged across folds.
 
-    Parameters:
-        base_model: FP32 tf.keras.Model from load_model_from_yaml
-        dataset: Tuple of (x_train, y_train, x_val, y_val)
-        config: Dict with 'pruning_settings' and 'qat_settings'
-        results_dir: Directory to save logs and model weights
-        loss_function: Loss string (e.g. 'categorical_crossentropy')
-        n_folds: Number of cross-validation folds (1 = no CV, default)
+    Parameters
+    ----------
+    base_model : tf.keras.Model
+        Baseline FP32 model constructed by ``load_model_from_yaml`` from a
+        BlockBased architecture YAML (e.g., ``best_model_for_local_search.yaml``).
+    dataset : tuple
+        ``(x_train, y_train, x_val, y_val)`` numpy arrays. Validation data may
+        be empty/None when using k-fold CV.
+    config : dict
+        Local search configuration dictionary with two required top-level keys:
 
-    Returns:
-        pd.DataFrame with columns: Precision, TotalBits, IntBits, Iteration,
-                                    Sparsity, Accuracy, EffectiveBOPs
+        - ``'qat_settings'``: dict with at least
+          - ``precision_pairs``: list of dicts
+            ``{'total_bits': int, 'int_bits': int}``
+          - ``epochs``: int, number of warmup epochs.
+        - ``'pruning_settings'``: dict with at least
+          - ``iterations``: int, number of pruning iterations.
+          - ``pruning_rate``: float in (0, 1], controls sparsity schedule.
+          - ``epochs_per_iteration``: int, fine-tuning epochs per pruning step.
+
+    results_dir : str
+        Directory where this function writes:
+
+        - ``combined_qat_pruning_log.csv`` (per-iteration summary).
+        - ``training_log.txt`` (full Keras training logs).
+        - ``best_model_{total_bits}b{int_bits}i.weights.h5`` checkpoints.
+    loss_function : str
+        Keras loss name (e.g., ``'categorical_crossentropy'`` or
+        ``'sparse_categorical_crossentropy'``) used for QAT and pruning phases.
+    n_folds : int, optional
+        Number of stratified k-fold splits to use (``1`` = no CV, default).
+
+    Returns
+    -------
+    pandas.DataFrame
+        A DataFrame with one row per (precision, iteration) combination and
+        columns::
+
+            Precision, TotalBits, IntBits, Iteration,
+            Sparsity, Accuracy, EffectiveBOPs
+
+        This table is also written incrementally to
+        ``combined_qat_pruning_log.csv`` in ``results_dir``.
     """
     x_train, y_train, x_val, y_val = dataset
     pruning_config = config["pruning_settings"]
@@ -565,20 +596,39 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
 
 def combined_local_search_entrypoint(architecture_yaml_path, local_search_config_path, dataset, results_dir, n_folds=1):
     """
-    Main entrypoint for combined QAT + pruning local search.
+    Main high-level entrypoint for combined QAT + pruning local search.
 
-    Mirrors the API of local_search_entrypoint from tf_local_search_separated.py.
+    This function mirrors the API of ``local_search_entrypoint`` from
+    ``tf_local_search_separated.py`` but routes through the combined QAT +
+    pruning workflow implemented in ``run_combined_search``. It is the primary
+    function to call from scripts or orchestration layers (e.g., an MCP tool)
+    when you want to perform local search starting from a BlockBased YAML
+    architecture produced by global search.
 
-    Parameters:
-        architecture_yaml_path: Path to best_model_for_local_search.yaml from global search
-        local_search_config_path: Path to YAML with pruning_settings and qat_settings
-        dataset: Tuple of (x_train, y_train, x_val, y_val) numpy arrays
-        results_dir: Directory to save results and model weights
-        n_folds: Number of cross-validation folds (1 = no CV, default)
+    Parameters
+    ----------
+    architecture_yaml_path : str
+        Path to a BlockBased architecture YAML, typically
+        ``best_model_for_local_search.yaml`` generated by global search.
+    local_search_config_path : str
+        Path to a YAML file containing ``pruning_settings`` and ``qat_settings``
+        (the same structure expected by ``run_combined_search``).
+    dataset : tuple
+        ``(x_train, y_train, x_val, y_val)`` numpy arrays used for QAT and
+        pruning. Validation arrays may be empty/None when using k-fold CV.
+    results_dir : str
+        Directory where local-search artifacts (logs, weight checkpoints, CSV)
+        will be written.
+    n_folds : int, optional
+        Number of stratified k-fold splits to use (``1`` = no CV, default).
 
-    Returns:
-        pd.DataFrame with columns: Precision, TotalBits, IntBits, Iteration,
-                                    Sparsity, Accuracy, EffectiveBOPs
+    Returns
+    -------
+    pandas.DataFrame
+        The same DataFrame returned by ``run_combined_search`` with columns::
+
+            Precision, TotalBits, IntBits, Iteration,
+            Sparsity, Accuracy, EffectiveBOPs
     """
     folds_str = f" (k-fold CV, {n_folds} folds)" if n_folds > 1 else ""
     print("\n" + "=" * 50 + f"\n STARTING COMBINED QAT+PRUNING LOCAL SEARCH{folds_str} \n" + "=" * 50)

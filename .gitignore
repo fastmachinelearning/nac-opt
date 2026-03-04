@@ -32,3 +32,5 @@ optuna/
 
 # Qubit data (large .npy files)
 data/qubit/*.npy
+
+qubit/

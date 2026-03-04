@@ -254,6 +254,25 @@ def build_mlp_from_config_classifier(widths, activations, normalizations, name='
 
 
 class GlobalSearchTF:
+    """
+    High-level orchestrator for TensorFlow global architecture and hyperparameter
+    searches using Optuna.
+
+    This class:
+    - Loads datasets via ``load_generic_dataset`` with dataset-specific kwargs.
+    - Builds Optuna objective functions for block-based and MLP models.
+    - Optionally computes hardware metrics via rule4ml when ``use_hardware_metrics``
+      is enabled.
+    - Accumulates per-trial results in ``self.results`` and writes:
+        * Incremental CSV files summarizing all trials for a given run.
+        * One YAML architecture file per trial in ``trials_dir``.
+        * A ``best_model_for_local_search.yaml`` snapshot for the best trial.
+        * Pareto-front plots (and optional 3D heatmaps) into ``results_dir``.
+
+    It is the primary programmatic entrypoint for global search when called
+    directly from Python or indirectly via higher-level orchestration layers
+    (e.g., an MCP server).
+    """
     def __init__(self, search_space_path=None, hls_config=None, results_dir="./results_tf"):
         self.results_dir = results_dir
         os.makedirs(results_dir, exist_ok=True)
@@ -299,7 +318,46 @@ class GlobalSearchTF:
         }
 
     def create_block_objective(self, x_train, y_train, x_val, y_val, epochs=10, use_hardware_metrics=False, verbose=True, one_hot=False, n_folds=1):
-        """Creates the objective function for Optuna to optimize."""
+        """
+        Create the Optuna objective function for block-based architectures.
+
+        Parameters
+        ----------
+        x_train, y_train, x_val, y_val
+            Training and validation splits returned by ``load_generic_dataset``.
+        epochs : int, optional
+            Number of epochs to train each trial model for.
+        use_hardware_metrics : bool, optional
+            If True, also estimate hardware usage via rule4ml and treat it as
+            additional objectives (average resource utilization and clock cycles).
+        verbose : bool, optional
+            If True, print a per-trial summary line (accuracy, BOPs, and hardware
+            metrics when available).
+        one_hot : bool, optional
+            Whether labels are provided in one-hot form; controls loss choice and
+            stratified k-fold behavior.
+        n_folds : int, optional
+            If >1, run stratified k-fold cross-validation inside each trial and
+            use the mean validation accuracy as the performance metric.
+
+        Returns
+        -------
+        callable
+            A function ``objective(trial)`` suitable for passing to
+            ``optuna.Study.optimize``. It returns:
+
+            - ``(performance_metric, bops)`` when ``use_hardware_metrics=False``.
+            - ``(performance_metric, bops, avg_resource, clock_cycles)`` when
+              ``use_hardware_metrics=True``.
+
+        Side effects
+        ------------
+        - Appends a per-trial result dict to ``self.results``.
+        - Writes a YAML architecture description for each trial into
+          ``self.trials_dir``.
+        - Incrementally appends CSV rows via ``_append_trial_to_csv`` when
+          ``run_search`` has initialized ``self.csv_file_path``.
+        """
         def objective(trial):
             try:
                 spaces = self.search_space
@@ -495,8 +553,45 @@ class GlobalSearchTF:
     def create_mlp_objective(self, x_train, y_train, x_val, y_val, epochs=10,
                             use_hardware_metrics=False, verbose=True):
         """
-        Creates objective function for MLP optimization.
-        NOW MODIFIED to save a block-compatible architecture to YAML.
+        Create the Optuna objective function for simple MLP architectures.
+
+        This objective is tailored for dense-only models and mirrors the
+        block-based pipeline by:
+        - Sampling a shallow MLP configuration from a fixed search space.
+        - Training the model on the provided train/validation splits.
+        - Computing accuracy, BOPs, and optional hardware metrics.
+        - Emitting a BlockBased-compatible YAML architecture description.
+
+        Parameters
+        ----------
+        x_train, y_train, x_val, y_val
+            Training and validation splits returned by ``load_generic_dataset``.
+        epochs : int, optional
+            Number of epochs to train each trial model for.
+        use_hardware_metrics : bool, optional
+            If True, estimate hardware usage via rule4ml and include average
+            resource utilization and clock cycles in the objective values and
+            per-trial results.
+        verbose : bool, optional
+            If True, print a per-trial summary line (accuracy and BOPs).
+
+        Returns
+        -------
+        callable
+            A function ``objective(trial)`` suitable for passing to
+            ``optuna.Study.optimize``. It returns:
+
+            - ``(performance_metric, bops)`` when ``use_hardware_metrics=False``.
+            - ``(performance_metric, bops, avg_resource, clock_cycles)`` when
+              ``use_hardware_metrics=True``.
+
+        Side effects
+        ------------
+        - Appends a per-trial result dict to ``self.results``.
+        - Writes a BlockBased-style YAML architecture for each trial to
+          ``self.trials_dir``.
+        - Incrementally appends CSV rows via ``_append_trial_to_csv`` when
+          ``run_search`` has initialized ``self.csv_file_path``.
         """
         def objective(trial):
             # This search space is specific to this simple MLP objective
@@ -725,7 +820,80 @@ class GlobalSearchTF:
         **dataset_kwargs,  # <-- NEW: forward arbitrary dataset loader args
     ):
         """
-        Run global search.
+        Run a full Optuna-based global search over block-based or MLP models.
+
+        This method:
+        - Loads the requested dataset via ``load_generic_dataset`` with sensible
+          defaults plus any extra ``dataset_kwargs``.
+        - Constructs an Optuna study (in-memory or backed by an external storage).
+        - Optimizes the appropriate objective function for the chosen
+          ``model_type`` ("block" or "mlp").
+        - Streams per-trial results into an incremental CSV file in
+          ``self.results_dir``.
+        - After optimization, rewrites the CSV with the in-memory ``self.results``,
+          selects a best trial, saves its architecture to
+          ``best_model_for_local_search.yaml``, and plots Pareto fronts.
+
+        Parameters
+        ----------
+        model_type : {"block", "mlp"}, optional
+            Search mode. "block" uses the block-based objective, "mlp" uses the
+            simpler dense-only objective.
+        n_trials : int, optional
+            Number of Optuna trials to run.
+        epochs : int, optional
+            Number of epochs to train each trial model for.
+        dataset : str, optional
+            Name of the dataset to load via ``load_generic_dataset``.
+        subset_size : int, optional
+            Number of training examples to use; forwarded to the loader.
+        resize_val : int, optional
+            Image resize parameter used only for certain datasets
+            (e.g., "mnist", "fashion_mnist").
+        objectives : list of str, optional
+            Names of objective values in the order returned by the objective
+            function. Defaults are chosen based on ``use_hardware_metrics``.
+        maximize_flags : list of bool, optional
+            For each objective in ``objectives``, whether to maximize (True) or
+            minimize (False). Used to derive Optuna ``directions``.
+        use_hardware_metrics : bool, optional
+            If True, augment objectives with average FPGA resource utilization
+            and clock cycles via rule4ml. For block-based searches, the search
+            space must not include "ConvAttn" blocks in ``block_types``.
+        verbose : bool, optional
+            If True, print high-level run information and per-trial summaries.
+        one_hot : bool, optional
+            Whether labels should be treated as one-hot in the block-based
+            objective (MLP objective always uses one-hot labels).
+        n_folds : int, optional
+            Number of folds for stratified k-fold validation in the block-based
+            objective. ``n_folds=1`` disables k-fold and uses a single validation
+            split.
+        callbacks : list of callable, optional
+            Optuna callbacks passed directly to ``study.optimize``.
+        storage : str or optuna.storages.BaseStorage, optional
+            Optuna storage backend (e.g., RDB URL) for multi-node / resumable
+            studies. When set, each worker writes a rank-specific CSV.
+        study_name : str, optional
+            Name of the Optuna study when ``storage`` is provided.
+        **dataset_kwargs
+            Additional keyword arguments forwarded into ``load_generic_dataset``
+            (e.g., data directory, qubit window specification).
+
+        Returns
+        -------
+        optuna.Study
+            The completed Optuna study object.
+
+        Side effects
+        ------------
+        - Populates ``self.results`` with a dict per successful trial.
+        - Writes or overwrites a CSV summary at ``self.csv_file_path``.
+        - Writes per-trial YAML architectures in ``self.trials_dir``.
+        - Copies the best-performing trial's YAML to
+          ``best_model_for_local_search.yaml`` in ``self.results_dir``.
+        - Generates Pareto-front plots (and 3D heatmaps when applicable) into
+          ``self.results_dir``.
         """
         # Record a timestamp for this run (used in CSV metadata)
         self.run_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -924,9 +1092,44 @@ def run_mlp_search(
     dataset_kwargs=None,
 ):
     """
-    Convenience function to run MLP search.
+    Convenience function to run a global search restricted to MLP architectures.
 
-    dataset_kwargs: dict forwarded into load_generic_dataset (e.g. start_location, window_size, data_dir)
+    This is a thin wrapper around ``GlobalSearchTF.run_search`` with
+    ``model_type="mlp"`` and a slightly different default configuration. It is
+    useful for quick experiments or when you want to treat MLP search as a
+    simple callable without manually instantiating ``GlobalSearchTF``.
+
+    Parameters
+    ----------
+    search_space_path : str or dict, optional
+        Path to a YAML search-space file or an in-memory search-space dict.
+        When omitted, ``GlobalSearchTF.get_default_search_space`` is used.
+    results_dir : str, optional
+        Directory where CSV, YAML, and plot artifacts will be written.
+    n_trials : int, optional
+        Number of Optuna trials to run.
+    epochs : int, optional
+        Number of epochs to train each MLP candidate.
+    dataset : str, optional
+        Name of the dataset to load via ``load_generic_dataset``.
+    subset_size : int, optional
+        Number of training examples to use; forwarded to the loader.
+    resize_val : int, optional
+        Image resize parameter used only for certain datasets
+        (e.g., "mnist", "fashion_mnist").
+    use_hardware_metrics : bool, optional
+        If True, compute and include hardware metrics via rule4ml.
+    dataset_kwargs : dict, optional
+        Extra keyword arguments forwarded into ``load_generic_dataset``
+        (e.g., ``start_location``, ``window_size``, ``data_dir``).
+
+    Returns
+    -------
+    tuple
+        ``(study, searcher)`` where ``study`` is the completed Optuna study and
+        ``searcher`` is the ``GlobalSearchTF`` instance that produced it. The
+        ``searcher`` exposes ``results_dir``, CSV/YAML paths, and helper methods
+        for downstream workflows such as local search.
     """
     searcher = GlobalSearchTF(search_space_path=search_space_path, results_dir=results_dir)
 
