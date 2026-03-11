@@ -296,4 +296,10 @@ if __name__ == "__main__":
     # Print a concise summary to stdout
     print(summary)
 
+    # run with:
+
+    # conda activate rule4ml_update
+    # export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+    # python -m utils.search_pipeline --config tutorials/tutorial_3_qubit/t3_config.yaml
+
 

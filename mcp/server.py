@@ -12,12 +12,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 @mcp.tool
-def echo(text: str) -> str: # check it works with the prompt: 
+def echo(text: str) -> str: # check it works with the prompt: Use the echo tool from nac-opt-mcp with text = "hello" and show me the result.
     """Echo text back to the caller."""
     return text
 
 @mcp.tool
-def read_repo_file(relative_path: str) -> str: # another check with the prompt: 
+def read_repo_file(relative_path: str) -> str: # another check with the prompt: Use read_repo_file from nac-opt-mcp with relative_path = "README.md" and show me the first 40 lines.
     """Read a UTF-8 text file from this repo by relative path."""
     path = REPO_ROOT / relative_path
     if not path.is_file():
