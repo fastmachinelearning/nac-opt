@@ -1,0 +1,54 @@
+# Tutorial 1: MLP search on MNIST
+# ================================
+# Config-driven entry point for tutorial_1_mlp.py / tutorial_1_mlp.ipynb
+
+dataset:
+  name: mnist
+  resize_val: 8
+  subset_size: 10000
+  flatten: true
+  one_hot: true
+
+search:
+  model_type: mlp
+  n_trials: 3
+  epochs: 2
+  use_hardware_metrics: true
+  objective_names: [performance_metric, bops, avg_resource, clock_cycles]
+  maximize_flags: [true, false, false, false]
+
+search_space:
+  mlp_width_space: [8, 16, 32, 64, 128]
+  act_space: [relu, tanh, sigmoid]
+  norm_space: [null, batch]
+  block_types: [MLP]
+  num_blocks: 3
+  initial_img_size: 8
+  output_dim: 10
+  output_activation: softmax
+  # Required dummy keys for validation:
+  channel_space: [16, 32]
+  kernel_space: [3]
+  conv_attn:
+    hidden_channel_space: [4]
+
+hls_config:
+  board: zcu102
+  model:
+    precision: "ap_fixed<8,3>"
+    reuse_factor: 1
+    strategy: Latency
+
+local_search:
+  qat_epochs: 2
+  pruning_iterations: 5
+  pruning_epochs: 2
+  pruning_rate: 0.8
+  precision_pairs:
+    - {total_bits: 16, int_bits: 6}
+    - {total_bits: 8,  int_bits: 3}
+    - {total_bits: 6,  int_bits: 2}
+    - {total_bits: 4,  int_bits: 1}
+
+output:
+  results_dir: ./results/tutorial1_mlp

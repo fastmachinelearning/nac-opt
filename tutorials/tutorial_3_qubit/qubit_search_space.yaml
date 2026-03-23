@@ -1,0 +1,7 @@
+mlp_width_space: [16, 32, 64, 128]
+act_space: ["ReLU", "LeakyReLU"]
+norm_space: ["batch", null]
+block_types: ["MLP", "None"]
+num_blocks: 3
+output_dim: 2
+output_activation: "softmax"

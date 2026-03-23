@@ -1,14 +1,36 @@
-# Ignore everything in the dataset directory
-/data/frames-exp4train.hdf5
-/data/peaks-exp4train-psz11.hdf5
+# Environment
 env/
 .env/
-/saved_models/*
-data/normalized_data3/
-data/normalized_data3-20240423T200227Z-001.zip
-data/normalized_data3-20240430T145906Z-001.zip
+
+# Python
 *.pyc
 __pycache__/
-Results/
-plots/
 
+# Jupyter
+.ipynb_checkpoints/
+
+# Tutorial outputs (search results, CSVs, trial YAMLs, plots, local search weights)
+tutorials/*/results/
+
+# Saved model weights
+*.h5
+*.weights.h5
+*.keras
+saved_models/
+results/
+
+# Optuna storage
+*.db
+optuna/
+
+# SLURM / job logs
+*.out
+*.err
+
+# OS
+.DS_Store
+
+# Qubit data (large .npy files)
+data/qubit/*.npy
+
+qubit/

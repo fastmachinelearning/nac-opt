@@ -1,0 +1,78 @@
+# Tutorial 3: Qubit readout search
+# ==================================
+# Config-driven entry point for tutorial_3_qubit.py / tutorial_3_qubit.ipynb
+
+dataset:
+  name: qubit
+  data_dir: ../../data/qubit/data # added last /data
+  start_location: 100
+  window_size: 400
+  subset_size: 1000
+  normalize: true
+  flatten: true
+  one_hot: true
+  num_classes: 2
+
+search:
+  model_type: block
+  n_trials: 3 # 30
+  epochs: 2 # 20
+  n_folds: 1 # 3
+  use_hardware_metrics: true
+  # objective_names: [performance_metric, bops]
+  # maximize_flags: [true, false]
+  # To enable hardware metrics, set use_hardware_metrics: true and add:
+  objective_names: [performance_metric, bops, avg_resource, clock_cycles]
+  maximize_flags: [true, false, false, false]
+
+search_space:
+  mlp_width_space: [16, 32, 64, 128]
+  act_space: [ReLU, LeakyReLU]
+  norm_space: [batch, null]
+  block_types: [MLP, None]
+  num_blocks: 4
+  output_dim: 2
+  output_activation: softmax
+  # Required dummy keys (unused since block_types has no Conv/ConvAttn):
+  channel_space: [16, 32]
+  kernel_space: [3]
+  conv_attn:
+    hidden_channel_space: [4]
+
+hls_config:
+  board: zcu102
+  model:
+    precision: "ap_fixed<8,3>"
+    reuse_factor: 8   # 1 = min latency but can trigger "excessive memory" in Vivado; use 8+ if synthesis fails
+    strategy: Latency
+
+# Synthesis: which local-search precision to use and where to write HLS project
+synthesis:
+  total_bits: 8
+  int_bits: 3
+  hls_output_dir: ./results/tutorial3_qubit_agent/hls_project
+
+local_search:
+  qat_epochs: 2 # 20
+  pruning_iterations: 3 # 10
+  pruning_epochs: 2 # 20
+  pruning_rate: 0.7
+  precision_pairs:
+    - {total_bits: 16, int_bits: 6}
+    - {total_bits: 8,  int_bits: 3}
+    - {total_bits: 4,  int_bits: 1}
+
+output:
+  results_dir: ./results/tutorial3_qubit_agent
+
+# ============================================================
+# Multi-node usage (SLURM):
+#   cd tutorials/tutorial_3_qubit
+#   sbatch run_global_search_slurm.sh
+#
+# Or via CLI script with storage backend:
+#   python run_global_search.py \
+#       --n_trials 1000 \
+#       --optuna_storage "sqlite:///./optuna.db" \
+#       --optuna_study_name "qubit_search"
+# ============================================================
