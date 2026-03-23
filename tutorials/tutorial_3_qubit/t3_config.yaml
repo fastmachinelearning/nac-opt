@@ -50,7 +50,7 @@ hls_config:
 synthesis:
   total_bits: 8
   int_bits: 3
-  hls_output_dir: ./results/tutorial3_qubit/hls_project
+  hls_output_dir: ./results/tutorial3_qubit_agent/hls_project
 
 local_search:
   qat_epochs: 2 # 20
@@ -63,7 +63,7 @@ local_search:
     - {total_bits: 4,  int_bits: 1}
 
 output:
-  results_dir: ./results/tutorial3_qubit
+  results_dir: ./results/tutorial3_qubit_agent
 
 # ============================================================
 # Multi-node usage (SLURM):
