@@ -119,6 +119,235 @@ This mode uses OpenAI's native `Responses API` MCP tool support. It is different
 
 Use the Responses API MCP mode when you are targeting OpenAI specifically and have a remotely reachable MCP server. Use the compatibility bridge when you need maximum provider compatibility.
 
+## Constraint-Driven Search Planning
+
+SNAC-Pack is designed for hardware-aware neural architecture co-design: global search explores architectures under multiple objectives, and local search refines the winning models with quantization-aware training and pruning. This repo now includes a planning layer that can generate a search config from:
+
+- Dataset metadata
+- Hardware and latency/resource constraints
+- Search-budget constraints
+- Architecture preferences or prohibitions
+
+The new planner is useful when you want the agent to reason from a dataset description instead of starting from a fixed tutorial YAML.
+
+### What the planner does
+
+Given a `dataset_spec` and optional `constraints`, the planner will:
+
+1. Normalize the dataset profile
+2. Choose a search mode (`mlp` or `block`)
+3. Decide whether to use hardware-aware objectives
+4. Generate a search space for widths, blocks, activations, and normalization
+5. Configure local search and HLS defaults
+6. Materialize a runnable YAML config
+
+The generated config still runs through the same SNAC-Pack search pipeline.
+
+### Automatic model-family choice
+
+The planner now chooses a supported model family by default instead of assuming a single fixed architecture style:
+
+- Non-spatial datasets such as tabular, vector, and 1D signal inputs default to `mlp` search.
+- Image-like datasets default to `block` search.
+- If the request emphasizes expressiveness or accuracy, image-like searches may include `ConvAttn`.
+- If the request emphasizes latency, FPGA cost, or hardware constraints, the planner biases toward cheaper supported blocks.
+
+Important limitation: the current execution stack supports `MLP`, `Conv`, and image-style `ConvAttn` search. It does not yet execute general RNN, GRU, LSTM, or arbitrary Transformer families. If the prompt asks for those, the planner records the request and falls back to the nearest supported family with a warning.
+
+### Dataset spec example
+
+```python
+dataset_spec = {
+    "name": "custom_jet_dataset",
+    "loader_path": "my_project.jet_data:load_and_preprocess_jets",
+    "modality": "vector",
+    "input_shape": [128],
+    "num_classes": 5,
+    "sample_count": 250000,
+    "loader_kwargs": {
+        "data_dir": "./data/jets",
+        "normalize": True,
+        "one_hot": True,
+    },
+}
+```
+
+### Constraint example
+
+```python
+constraints = {
+    "search_style": "balanced",
+    "max_trials": 40,
+    "epochs": 5,
+    "open_ended": True,
+    "hardware": {
+        "board": "vu13p",
+        "precision": "ap_fixed<8,3>",
+        "reuse_factor": 1,
+        "strategy": "Latency",
+    },
+    "use_hardware_metrics": True,
+    "max_width": 256,
+    "max_blocks": 5,
+    "local_search": {
+        "budget": "balanced",
+    },
+}
+```
+
+### Programmatic usage
+
+To generate a config without executing a run:
+
+```python
+from utils.search_planner import build_search_config
+from utils.search_pipeline import materialize_config
+
+config = build_search_config(dataset_spec, constraints)
+materialize_config(config, "generated_configs/jets.yaml")
+```
+
+To generate a config and immediately execute the standard pipeline:
+
+```python
+from utils.search_pipeline import run_pipeline_from_spec
+
+summary = run_pipeline_from_spec(
+    dataset_spec=dataset_spec,
+    constraints=constraints,
+    run_local_search=True,
+)
+```
+
+### MCP/OpenAI usage
+
+The MCP/OpenAI bridge now exposes three planning-oriented tools:
+
+- `recommend_search_plan`
+- `create_search_config`
+- `run_search_pipeline_from_spec`
+
+This lets an agent reason from dataset constraints instead of only selecting among tutorial configs.
+
+## Plain-English Agent Workflow
+
+If you want the LLM to handle the dataset profiling step too, the repo now supports a higher-level workflow:
+
+1. Inspect a local dataset path
+2. Infer a dataset spec
+3. Infer search constraints from plain-English instructions
+4. Generate a config
+5. Run the search
+
+This workflow also supports:
+
+- built-in dataset discovery (`list_available_datasets`, `describe_dataset`)
+- automatic model-family choice
+- latency and resource budget parsing from natural language
+- budget-aware final-model selection when hardware metrics are enabled
+
+This is exposed through:
+
+- `list_available_datasets`
+- `describe_dataset`
+- `inspect_dataset`
+- `run_agentic_search`
+
+### Create a small local test dataset
+
+```bash
+.venv-mcp/bin/python - <<'PY'
+from pathlib import Path
+from sklearn.datasets import load_iris
+
+out_dir = Path("data/iris_demo")
+out_dir.mkdir(parents=True, exist_ok=True)
+load_iris(as_frame=True).frame.to_csv(out_dir / "iris.csv", index=False)
+print(out_dir / "iris.csv")
+PY
+```
+
+### Example dataset inspection
+
+```python
+from utils.dataset_catalog import describe_dataset, list_available_datasets
+from utils.dataset_inspector import inspect_dataset_path
+
+print(list_available_datasets())
+print(describe_dataset("qubit"))
+dataset_spec = inspect_dataset_path("data/iris_demo/iris.csv")
+print(dataset_spec)
+```
+
+### Example plain-English run
+
+```python
+from utils.search_pipeline import run_agentic_search
+
+summary = run_agentic_search(
+    request_text="Use this dataset and find me a quick low-cost classifier. Keep the search small.",
+    dataset_path="data/iris_demo/iris.csv",
+    run_local_search=False,
+    config_output_path="generated_configs/iris_agentic.yaml",
+)
+```
+
+Built-in datasets can also be driven without a local file path:
+
+```python
+from utils.search_pipeline import run_agentic_search
+
+summary = run_agentic_search(
+    request_text="Use the built-in mnist dataset and find me a quick low-cost classifier. Keep the search tiny and skip local search.",
+    dataset_name="mnist",
+    run_local_search=False,
+)
+```
+
+### Example latency-constrained run
+
+```python
+from utils.search_pipeline import run_agentic_search
+
+summary = run_agentic_search(
+    request_text=(
+        "Use this dataset and find me a low-latency classifier for FPGA. "
+        "Keep latency under 500 cycles, keep the search small, and skip local search."
+    ),
+    dataset_path="data/iris_demo/iris.csv",
+    run_local_search=False,
+    config_output_path="generated_configs/iris_latency_budget.yaml",
+)
+```
+
+When a latency or resource budget is present, the planner enables hardware-aware search and the final saved architecture is selected as:
+
+1. the best feasible model that meets the budget, if one exists
+2. otherwise, the closest-feasible candidate
+
+The current quality of that selection depends on `rule4ml` producing valid hardware estimates in the active environment.
+
+### OpenAI-compatible CLI examples
+
+From the repo root:
+
+```bash
+.venv-mcp/bin/python mcp/openai_compat_agent.py \
+  "What built-in datasets are available? Briefly describe qubit, then use data/iris_demo/iris.csv and find me a quick low-cost classifier. Keep the search small and skip local search."
+```
+
+```bash
+.venv-mcp/bin/python mcp/openai_compat_agent.py \
+  "Use the built-in mnist dataset and find me the best accuracy model you can among the supported families. If an expressive attention-like model is too slow, choose the next best lower-latency option."
+```
+
+```bash
+.venv-mcp/bin/python mcp/openai_compat_agent.py \
+  "Use data/iris_demo/iris.csv and optimize for FPGA latency. Keep latency under 500 cycles, keep the search small, and skip local search. Tell me the exact config path and results directory."
+```
+
+Right now the automatic execution path is strongest for common local tabular classification files such as CSV/TSV/Parquet. More exotic formats can still work when the dataset inspector infers a good `loader_path`, or when a custom loader is available.
+
 ## Tutorials
 
 Three self-contained tutorials are provided, each with a Python script, Jupyter notebook, and YAML config. All parameters (search space, dataset, epochs, local search settings) are controlled through the config file — no code changes needed for common experiments.

@@ -23,14 +23,17 @@ import pandas as pd
 import tensorflow as tf
 import yaml
 
+from utils.search_planner import (
+    build_search_config,
+    write_search_config,
+)
+from utils.dataset_catalog import describe_dataset
+from utils.dataset_inspector import inspect_dataset_path
+from utils.request_inference import infer_constraints_from_request
 from utils.tf_global_search import GlobalSearchTF
 from utils.tf_local_search_separated import local_search_entrypoint
 from utils.tf_local_search_combined import combined_local_search_entrypoint
-from utils.tf_data_preprocessing import (
-    load_and_preprocess_mnist,
-    load_and_preprocess_fashion_mnist,
-    load_and_preprocess_qubit,
-)
+from utils.tf_data_preprocessing import load_generic_dataset
 
 
 def _build_local_search_config_yaml(ls_cfg: Dict[str, Any], results_dir: str) -> str:
@@ -56,6 +59,47 @@ def _build_local_search_config_yaml(ls_cfg: Dict[str, Any], results_dir: str) ->
     return local_config_path
 
 
+def _resolve_dataset_loader_kwargs(
+    dataset_cfg: Dict[str, Any],
+    config_path: str,
+    *,
+    flatten_override: bool | None = None,
+    one_hot_override: bool | None = None,
+) -> Dict[str, Any]:
+    """
+    Build kwargs for ``load_generic_dataset`` from a dataset config section.
+    """
+    loader_kwargs = dict(dataset_cfg.get("loader_kwargs", {}))
+
+    info_only_keys = {
+        "name",
+        "display_name",
+        "description",
+        "loader_path",
+        "modality",
+        "input_shape",
+        "sample_count",
+        "task_type",
+        "notes",
+    }
+    for key, value in dataset_cfg.items():
+        if key in info_only_keys or key == "loader_kwargs":
+            continue
+        loader_kwargs.setdefault(key, value)
+
+    if flatten_override is not None:
+        loader_kwargs["flatten"] = flatten_override
+    if one_hot_override is not None:
+        loader_kwargs["one_hot"] = one_hot_override
+
+    base_dir = Path(config_path).resolve().parent
+    for key, value in list(loader_kwargs.items()):
+        if key.endswith("_dir") and isinstance(value, str) and value and not os.path.isabs(value):
+            loader_kwargs[key] = str((base_dir / value).resolve())
+
+    return loader_kwargs
+
+
 def _load_dataset_for_local_search(
     dataset_cfg: Dict[str, Any],
     dataset_name: str,
@@ -64,42 +108,33 @@ def _load_dataset_for_local_search(
     """
     Recreate the dataset splits for local search, mirroring the tutorial scripts.
     """
-    if dataset_name == "mnist":
-        x_train, y_train, x_val, y_val = load_and_preprocess_mnist(
-            resize_val=dataset_cfg["resize_val"],
-            subset_size=dataset_cfg["subset_size"],
-            flatten=True,
-            one_hot=True,
-        )
-        return x_train, y_train, x_val, y_val
-
-    if dataset_name == "fashion_mnist":
-        x_train, y_train, x_val, y_val = load_and_preprocess_fashion_mnist(
-            resize_val=dataset_cfg["resize_val"],
-            subset_size=dataset_cfg["subset_size"],
-            flatten=False,
-            one_hot=True,
-        )
-        return x_train, y_train, x_val, y_val
-
     if dataset_name == "qubit":
-        tutorial_dir = Path(config_path).resolve().parent
-        data_dir = str((tutorial_dir / dataset_cfg["data_dir"]).resolve())
-        x_train, y_train, _, _ = load_and_preprocess_qubit(
-            data_dir=data_dir,
-            start_location=dataset_cfg["start_location"],
-            window_size=dataset_cfg["window_size"],
-            subset_size=dataset_cfg.get("subset_size"),
-            normalize=dataset_cfg["normalize"],
-            flatten=dataset_cfg["flatten"],
-            one_hot=True,
-            num_classes=dataset_cfg["num_classes"],
+        loader_kwargs = _resolve_dataset_loader_kwargs(
+            dataset_cfg,
+            config_path,
+            flatten_override=dataset_cfg.get("flatten", True),
+            one_hot_override=True,
+        )
+        x_train, y_train, _, _ = load_generic_dataset(
+            dataset_name=dataset_name,
+            loader_path=dataset_cfg.get("loader_path"),
+            **loader_kwargs,
         )
         x_val_empty = np.empty((0, *x_train.shape[1:]), dtype=x_train.dtype)
         y_val_empty = np.empty((0, *y_train.shape[1:]), dtype=y_train.dtype)
         return x_train, y_train, x_val_empty, y_val_empty
 
-    raise ValueError(f"Unsupported dataset name for local search: {dataset_name}")
+    loader_kwargs = _resolve_dataset_loader_kwargs(
+        dataset_cfg,
+        config_path,
+        flatten_override=dataset_cfg.get("flatten", dataset_name == "mnist"),
+        one_hot_override=True,
+    )
+    return load_generic_dataset(
+        dataset_name=dataset_name,
+        loader_path=dataset_cfg.get("loader_path"),
+        **loader_kwargs,
+    )
 
 
 def _run_global_search_from_config(
@@ -123,6 +158,7 @@ def _run_global_search_from_config(
         search_space_path=ss_cfg,
         results_dir=results_dir,
     )
+    searcher.selection_constraints = dict(s_cfg.get("selection", {}))
 
     obj_names = s_cfg["objective_names"]
     max_flags = s_cfg["maximize_flags"]
@@ -141,20 +177,15 @@ def _run_global_search_from_config(
         n_folds=s_cfg.get("n_folds", 1),
     )
 
-    if dataset_name in ("mnist", "fashion_mnist"):
-        run_search_kwargs["resize_val"] = ds_cfg["resize_val"]
-
-    if dataset_name == "qubit":
-        tutorial_dir = Path(config_path).resolve().parent
-        data_dir = str((tutorial_dir / ds_cfg["data_dir"]).resolve())
-        run_search_kwargs.update(
-            data_dir=data_dir,
-            start_location=ds_cfg["start_location"],
-            window_size=ds_cfg["window_size"],
-            num_classes=ds_cfg["num_classes"],
-            normalize=ds_cfg["normalize"],
-            flatten=ds_cfg["flatten"],
-        )
+    loader_kwargs = _resolve_dataset_loader_kwargs(
+        ds_cfg,
+        config_path,
+        flatten_override=(s_cfg["model_type"] == "mlp"),
+        one_hot_override=(s_cfg["model_type"] == "mlp") or ds_cfg.get("one_hot", False),
+    )
+    run_search_kwargs.update(loader_kwargs)
+    if ds_cfg.get("loader_path"):
+        run_search_kwargs["loader_path"] = ds_cfg["loader_path"]
 
     study = searcher.run_search(**run_search_kwargs)
     return searcher, study
@@ -255,8 +286,90 @@ def run_pipeline_from_config(
     return summary
 
 
+def materialize_config(
+    config: Dict[str, Any],
+    output_path: str | Path | None = None,
+) -> Path:
+    """
+    Write a config dict to disk and return the absolute path.
+    """
+    return write_search_config(config, output_path=output_path)
+
+
+def run_pipeline_from_spec(
+    dataset_spec: Dict[str, Any],
+    constraints: Dict[str, Any] | None = None,
+    *,
+    run_local_search: bool = True,
+    config_output_path: str | Path | None = None,
+) -> Dict[str, Any]:
+    """
+    Build a config from dataset metadata + constraints, write it, and execute the
+    standard search pipeline.
+    """
+    config = build_search_config(dataset_spec, constraints)
+    config_path = materialize_config(config, output_path=config_output_path)
+    summary = run_pipeline_from_config(str(config_path), run_local_search=run_local_search)
+    summary["generated_config"] = str(config_path)
+    summary["planned_dataset"] = dataset_spec
+    summary["planned_constraints"] = constraints or {}
+    return summary
+
+
+def run_agentic_search(
+    request_text: str,
+    *,
+    dataset_path: str | None = None,
+    dataset_name: str | None = None,
+    dataset_spec: Dict[str, Any] | None = None,
+    constraints: Dict[str, Any] | None = None,
+    run_local_search: bool | None = None,
+    config_output_path: str | Path | None = None,
+) -> Dict[str, Any]:
+    """
+    High-level plain-English entrypoint for agent-driven search.
+
+    The caller may provide either a dataset path to inspect or an already-built
+    dataset spec. Built-in dataset names can be resolved through the dataset
+    catalog. Plain-English request text is converted into planner
+    constraints and merged with any explicit overrides.
+    """
+    if not dataset_spec and not dataset_path and not dataset_name:
+        raise ValueError("Provide dataset_path, dataset_name, or dataset_spec.")
+
+    inferred_spec: Dict[str, Any] = {}
+    if dataset_path:
+        inferred_spec = inspect_dataset_path(dataset_path)
+    elif dataset_name:
+        inferred_spec = describe_dataset(dataset_name)["profile"]
+
+    merged_dataset_spec = dict(inferred_spec)
+    merged_dataset_spec.update(dataset_spec or {})
+
+    inferred_constraints = infer_constraints_from_request(request_text)
+    merged_constraints = dict(inferred_constraints)
+    merged_constraints.update(constraints or {})
+
+    if run_local_search is None:
+        run_local_search = not bool(merged_constraints.pop("disable_local_search", False))
+
+    summary = run_pipeline_from_spec(
+        dataset_spec=merged_dataset_spec,
+        constraints=merged_constraints,
+        run_local_search=run_local_search,
+        config_output_path=config_output_path,
+    )
+    summary["request_text"] = request_text
+    summary["inspected_dataset"] = merged_dataset_spec
+    summary["inferred_constraints"] = inferred_constraints
+    return summary
+
+
 __all__ = [
+    "materialize_config",
+    "run_agentic_search",
     "run_pipeline_from_config",
+    "run_pipeline_from_spec",
 ]
 
 
@@ -301,5 +414,3 @@ if __name__ == "__main__":
     # conda activate rule4ml_update
     # export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
     # python -m utils.search_pipeline --config tutorials/tutorial_3_qubit/t3_config.yaml
-
-

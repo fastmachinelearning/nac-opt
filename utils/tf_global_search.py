@@ -295,6 +295,7 @@ class GlobalSearchTF:
         self.current_model_type = None
         # CSV file path for incremental writing; set at the start of run_search
         self.csv_file_path = None
+        self.selection_constraints = {}
 
     def get_default_search_space(self):
         return {
@@ -594,43 +595,43 @@ class GlobalSearchTF:
           ``run_search`` has initialized ``self.csv_file_path``.
         """
         def objective(trial):
-            # This search space is specific to this simple MLP objective
-            mlp_search_space = {
-                "num_layers": [2, 3, 4, 5], "hidden_units1": [8, 16, 32, 64, 128],
-                "activation1": ["relu", "tanh", "sigmoid"], "batchnorm1": [True, False],
-                "hidden_units2": [8, 16, 32, 64], "activation2": ["relu", "tanh", "sigmoid"],
-                "batchnorm2": [True, False],
-                "hidden_units3": [8, 16, 32], "activation3": ["relu", "tanh", "sigmoid"],
-                "batchnorm3": [True, False],
-                "hidden_units4": [8, 16], "activation4": ["relu", "tanh", "sigmoid"],
-                "batchnorm4": [True, False],
-            }
+            spaces = self.search_space
+            num_layers_space = spaces.get("mlp_num_layers_space", [2, 3, 4, 5])
+            width_space = spaces.get("mlp_width_space", [8, 16, 32, 64, 128])
+            act_space = spaces.get("act_space", ["relu", "tanh", "sigmoid"])
+            norm_space = spaces.get("norm_space", [None, "batch"])
 
-            # Sample architecture configuration
-            num_layers = trial.suggest_categorical("num_layers", mlp_search_space["num_layers"])
+            num_layers = trial.suggest_categorical("num_layers", num_layers_space)
+            hidden_units = []
+            activations = []
+            normalizations = []
+            for layer_idx in range(int(num_layers) - 1):
+                hidden_units.append(
+                    trial.suggest_categorical(f"hidden_units_{layer_idx}", width_space)
+                )
+                activations.append(
+                    trial.suggest_categorical(f"activation_{layer_idx}", act_space)
+                )
+                normalizations.append(
+                    trial.suggest_categorical(f"normalization_{layer_idx}", norm_space)
+                )
+
             config = {
-                "num_layers": num_layers,
-                "hidden_units1": trial.suggest_categorical("hidden_units1", mlp_search_space["hidden_units1"]),
-                "activation1": trial.suggest_categorical("activation1", mlp_search_space["activation1"]),
-                "batchnorm1": trial.suggest_categorical("batchnorm1", mlp_search_space["batchnorm1"]),
+                "hidden_units": hidden_units,
+                "activations": activations,
+                "normalizations": normalizations,
             }
-            if num_layers >= 3:
-                config["hidden_units2"] = trial.suggest_categorical("hidden_units2", mlp_search_space["hidden_units2"])
-                config["activation2"] = trial.suggest_categorical("activation2", mlp_search_space["activation2"])
-                config["batchnorm2"] = trial.suggest_categorical("batchnorm2", mlp_search_space["batchnorm2"])
-            if num_layers >= 4:
-                config["hidden_units3"] = trial.suggest_categorical("hidden_units3", mlp_search_space["hidden_units3"])
-                config["activation3"] = trial.suggest_categorical("activation3", mlp_search_space["activation3"])
-                config["batchnorm3"] = trial.suggest_categorical("batchnorm3", mlp_search_space["batchnorm3"])
-            if num_layers >= 5:
-                config["hidden_units4"] = trial.suggest_categorical("hidden_units4", mlp_search_space["hidden_units4"])
-                config["activation4"] = trial.suggest_categorical("activation4", mlp_search_space["activation4"])
-                config["batchnorm4"] = trial.suggest_categorical("batchnorm4", mlp_search_space["batchnorm4"])
 
             input_size = x_train.shape[1]
             num_classes = y_train.shape[1]
+            output_activation = spaces.get("output_activation", "softmax")
             from .tf_model_builder import build_mlp_from_config
-            model = build_mlp_from_config(config, input_size=input_size, num_classes=num_classes)
+            model = build_mlp_from_config(
+                config,
+                input_size=input_size,
+                num_classes=num_classes,
+                output_activation=output_activation,
+            )
 
             train_model(
                 model, (x_train, y_train), (x_val, y_val),
@@ -644,26 +645,11 @@ class GlobalSearchTF:
             # --- REPLACE THE MNIST-SPECIFIC YAML LOGIC WITH THIS ---
             input_shape_yaml = _infer_input_shape_yaml(x_train)
 
-            widths = [input_size, config["hidden_units1"]]
-            activations = [config["activation1"]]
-            normalizations = ["batch" if config["batchnorm1"] else None]
-
-            if num_layers >= 3:
-                widths.append(config["hidden_units2"])
-                activations.append(config["activation2"])
-                normalizations.append("batch" if config["batchnorm2"] else None)
-            if num_layers >= 4:
-                widths.append(config["hidden_units3"])
-                activations.append(config["activation3"])
-                normalizations.append("batch" if config["batchnorm3"] else None)
-            if num_layers >= 5:
-                widths.append(config["hidden_units4"])
-                activations.append(config["activation4"])
-                normalizations.append("batch" if config["batchnorm4"] else None)
-
-            widths.append(num_classes)
-            activations.append("softmax")
-            normalizations.append(None)
+            widths = [input_size, *hidden_units, num_classes]
+            activations_yaml = [str(act) if act is not None else None for act in activations]
+            normalizations_yaml = [norm for norm in normalizations]
+            activations_yaml.append(output_activation)
+            normalizations_yaml.append(None)
 
             model_components = []
             if len(input_shape_yaml) > 1:
@@ -673,7 +659,11 @@ class GlobalSearchTF:
                 {
                     "block_type": "MLP",
                     "name": "classifier_head",
-                    "params": {"widths": widths, "activations": activations, "normalizations": normalizations},
+                    "params": {
+                        "widths": widths,
+                        "activations": activations_yaml,
+                        "normalizations": normalizations_yaml,
+                    },
                 }
             )
 
@@ -1038,7 +1028,7 @@ class GlobalSearchTF:
             print("No successful trials to select a best model from.")
             return
 
-        best_trial_row = df.loc[df['performance_metric'].idxmax()]
+        best_trial_row, selection_note = self._select_best_trial_row(df)
         best_trial_yaml_path = best_trial_row['yaml_path']
         destination_path = os.path.join(self.results_dir, "best_model_for_local_search.yaml")
         import shutil
@@ -1047,12 +1037,72 @@ class GlobalSearchTF:
         print(f"   - Source: {best_trial_yaml_path}")
         print(f"   - Destination: {destination_path}")
         print(f"   - Accuracy: {best_trial_row['performance_metric']:.4f}")
+        if selection_note:
+            print(f"   - Selection: {selection_note}")
 
         # Plot all pairwise Pareto fronts; add 3D heatmap when hardware metrics are enabled
         obj_info = list(zip(self.objective_names, self.maximize_flags))
         plot_pareto_fronts(df, obj_info, save_dir=self.results_dir)
         if len(self.objective_names) >= 4:
             plot_3d_pareto_front_heatmap(df, obj_info, save_dir=self.results_dir)
+
+
+    def _select_best_trial_row(self, df):
+        constraints = self.selection_constraints or {}
+        latency_budget = constraints.get("latency_budget")
+        resource_budget = constraints.get("resource_budget")
+
+        note_parts = []
+        feasible_mask = pd.Series(True, index=df.index)
+
+        if latency_budget is not None and "clock_cycles" in df.columns:
+            feasible_mask &= df["clock_cycles"] <= float(latency_budget)
+            note_parts.append(f"latency <= {float(latency_budget):g} cycles")
+        if resource_budget is not None and "avg_resource" in df.columns:
+            feasible_mask &= df["avg_resource"] <= float(resource_budget)
+            note_parts.append(f"avg_resource <= {float(resource_budget):g}")
+
+        sort_columns = []
+        ascending = []
+        if "performance_metric" in df.columns:
+            sort_columns.append("performance_metric")
+            ascending.append(False)
+        for metric in ("clock_cycles", "avg_resource", "bops"):
+            if metric in df.columns:
+                sort_columns.append(metric)
+                ascending.append(True)
+
+        if note_parts:
+            feasible_df = df.loc[feasible_mask]
+            if not feasible_df.empty:
+                selected = feasible_df.sort_values(sort_columns, ascending=ascending).iloc[0]
+                return selected, f"best feasible model satisfying {' and '.join(note_parts)}"
+
+            violation_df = df.copy()
+            if latency_budget is not None and "clock_cycles" in violation_df.columns:
+                violation_df["_latency_violation"] = (
+                    (violation_df["clock_cycles"] - float(latency_budget)).clip(lower=0.0)
+                    / max(float(latency_budget), 1.0)
+                )
+            else:
+                violation_df["_latency_violation"] = 0.0
+            if resource_budget is not None and "avg_resource" in violation_df.columns:
+                violation_df["_resource_violation"] = (
+                    (violation_df["avg_resource"] - float(resource_budget)).clip(lower=0.0)
+                    / max(float(resource_budget), 1.0)
+                )
+            else:
+                violation_df["_resource_violation"] = 0.0
+            violation_df["_total_violation"] = (
+                violation_df["_latency_violation"] + violation_df["_resource_violation"]
+            )
+            fallback_sort = ["_total_violation", *sort_columns]
+            fallback_ascending = [True, *ascending]
+            selected = violation_df.sort_values(fallback_sort, ascending=fallback_ascending).iloc[0]
+            return selected, f"no trial met {' and '.join(note_parts)}; chose the closest-feasible candidate"
+
+        selected = df.loc[df["performance_metric"].idxmax()]
+        return selected, None
 
 
     def print_best_trials(self, study):
