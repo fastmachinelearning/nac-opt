@@ -42,6 +42,83 @@ Then install the remaining dependencies:
 pip install -r requirements.txt
 ```
 
+## MCP and OpenAI-Compatible Agents
+
+The repo includes an MCP server in `mcp/server.py`, an OpenAI-tool bridge in `mcp/openai_compat_agent.py`, and an OpenAI Responses API MCP runner in `mcp/openai_responses_mcp_agent.py`. This makes the repo tools usable from:
+
+1. Native MCP clients
+2. OpenAI's Responses API using a remote MCP server
+3. Any LLM or agent that speaks an OpenAI-compatible `chat.completions` API and supports tool calling
+
+### Run the MCP server
+
+From the repo root:
+
+```bash
+./mcp/launch_nac_opt_mcp.sh
+```
+
+The launcher now resolves the repo path dynamically instead of assuming a specific machine layout. If a given system needs a particular conda environment, set these optional variables first:
+
+```bash
+export NAC_OPT_CONDA_SH="$HOME/miniforge3/etc/profile.d/conda.sh"
+export NAC_OPT_CONDA_ENV="snac-pack"
+./mcp/launch_nac_opt_mcp.sh
+```
+
+By default the launcher uses stdio transport, but you can override it:
+
+```bash
+NAC_OPT_MCP_TRANSPORT=stdio ./mcp/launch_nac_opt_mcp.sh
+```
+
+### Run with any OpenAI-compatible endpoint
+
+Set the endpoint credentials:
+
+```bash
+export OPENAI_API_KEY="your-key"
+export OPENAI_BASE_URL="https://your-provider.example/v1"
+export OPENAI_MODEL="your-model"
+```
+
+Then run:
+
+```bash
+python3 mcp/openai_compat_agent.py \
+  "Read README.md and summarize how to run tutorial 3."
+```
+
+The bridge exposes the same repo actions (`echo`, `read_repo_file`, and `run_search_pipeline`) as OpenAI-style tools, so the tool workflow works with OpenAI itself and with other providers that implement the same endpoint shape.
+
+### Run with the OpenAI Responses API using native MCP
+
+If you want OpenAI itself to import tools from the MCP server directly, run the server over a remote MCP transport such as `streamable-http` or `sse`, and make sure the server URL is reachable by OpenAI.
+
+Example local launch for HTTP-style MCP transport:
+
+```bash
+NAC_OPT_MCP_TRANSPORT=streamable-http ./mcp/launch_nac_opt_mcp.sh --port 8000
+```
+
+Then point the Responses API runner at that MCP URL:
+
+```bash
+export OPENAI_API_KEY="your-key"
+export OPENAI_MODEL="gpt-5"
+export OPENAI_MCP_SERVER_URL="https://your-public-host.example/mcp"
+
+python3 mcp/openai_responses_mcp_agent.py \
+  "Read README.md and summarize how to run tutorial 3."
+```
+
+This mode uses OpenAI's native `Responses API` MCP tool support. It is different from the generic compatibility bridge above:
+
+- `openai_responses_mcp_agent.py` lets OpenAI connect to the MCP server directly.
+- `openai_compat_agent.py` translates the repo tools into ordinary OpenAI-style function tools and runs them locally.
+
+Use the Responses API MCP mode when you are targeting OpenAI specifically and have a remotely reachable MCP server. Use the compatibility bridge when you need maximum provider compatibility.
+
 ## Tutorials
 
 Three self-contained tutorials are provided, each with a Python script, Jupyter notebook, and YAML config. All parameters (search space, dataset, epochs, local search settings) are controlled through the config file — no code changes needed for common experiments.

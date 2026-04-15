@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-# make like interactive shell
-source "$HOME/.bashrc"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+TRANSPORT="${NAC_OPT_MCP_TRANSPORT:-stdio}"
 
-source "/home/users/jdweitz/miniforge3/etc/profile.d/conda.sh"
-conda activate rule4ml_update
+if [[ -n "${NAC_OPT_CONDA_SH:-}" && -n "${NAC_OPT_CONDA_ENV:-}" ]]; then
+  source "${NAC_OPT_CONDA_SH}"
+  conda activate "${NAC_OPT_CONDA_ENV}"
+fi
 
-export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}" # need this or will get that version error
+if [[ -n "${CONDA_PREFIX:-}" ]]; then
+  export LD_LIBRARY_PATH="${CONDA_PREFIX}/lib:${LD_LIBRARY_PATH:-}"
+fi
 
-cd "/home/users/jdweitz/nac-opt_mcp/nac-opt"
-fastmcp run mcp/server.py:mcp
-
+cd "${REPO_ROOT}"
+exec fastmcp run "mcp/server.py:mcp" --transport "${TRANSPORT}" "$@"

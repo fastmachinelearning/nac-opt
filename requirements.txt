@@ -1,4 +1,5 @@
 brevitas==0.11.0
+fastmcp
 graphviz==0.21
 hls4ml==1.1.0
 importlib-metadata==8.6.1
@@ -8,6 +9,7 @@ mplcursors==0.6
 mplhep==0.4.1
 namex==0.0.8
 nbformat==5.10.4
+openai
 optree==0.14.1
 orjson==3.10.16
 pickleshare==0.7.5
