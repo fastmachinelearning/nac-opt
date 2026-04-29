@@ -26,7 +26,8 @@ search:
   maximize_flags: [true, false, false, false]
 
 search_space:
-  mlp_width_space: [16, 32, 64, 128]
+  # mlp_width_space: [16, 32, 64, 128]
+  mlp_width_space: [4, 8, 16, 32]
   act_space: [ReLU, LeakyReLU]
   norm_space: [batch, null]
   block_types: [MLP, None]
@@ -50,7 +51,7 @@ hls_config:
 synthesis:
   total_bits: 8
   int_bits: 3
-  hls_output_dir: ./results/tutorial3_qubit_agent/hls_project
+  hls_output_dir: ./results/tutorial3_qubit_agent_full/hls_project
 
 local_search:
   qat_epochs: 2 # 20
@@ -63,7 +64,7 @@ local_search:
     - {total_bits: 4,  int_bits: 1}
 
 output:
-  results_dir: ./results/tutorial3_qubit_agent
+  results_dir: ./results/tutorial3_qubit_agent_full
 
 # ============================================================
 # Multi-node usage (SLURM):
