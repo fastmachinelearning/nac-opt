@@ -152,16 +152,48 @@ The local search takes the best architecture from global search and applies:
 
 ## Citation
 
-If you use SNAC-Pack in your research, please cite:
+If you use SNAC-Pack in your research, please cite the software:
 
 ```bibtex
-@misc{weitz2025neuralarchitecturecodesignfast,
-      title={Neural Architecture Codesign for Fast Physics Applications},
-      author={Jason Weitz and Dmitri Demler and Luke McDermott and Nhan Tran and Javier Duarte},
-      year={2025},
-      eprint={2501.05515},
+@software{nac_opt,
+  author       = {Demler, Dmitri and Weitz, Jason and Duarte, Javier and Cummings, Daniel and McDermott, Luke},
+  title        = {fastmachinelearning/nac-opt},
+  year         = 2026,
+  publisher    = {Zenodo},
+  version      = {v1.0.0},
+  doi          = {10.5281/zenodo.19202843},
+  url          = {https://github.com/fastmachinelearning/nac-opt}
+}
+```
+
+the first publication:
+
+```bibtex
+@article{Weitz:2025,
+doi = {10.1088/2632-2153/adede1},
+url = {https://doi.org/10.1088/2632-2153/adede1},
+year = {2025},
+month = {jul},
+publisher = {IOP Publishing},
+volume = {6},
+number = {3},
+pages = {035009},
+author = {Weitz, Jason and Demler, Dmitri and McDermott, Luke and Tran, Nhan and Duarte, Javier},
+title = {Neural architecture codesign for fast physics applications},
+journal = {Machine Learning: Science and Technology}
+}
+```
+
+and the most recent paper:
+
+```bibtex
+@misc{Weitz:2026,
+      title={Surrogate Neural Architecture Codesign Package (SNAC-Pack)}, 
+      author={Jason Weitz and Dmitri Demler and Benjamin Hawks and Aaron Wang and Nhan Tran and Javier Duarte},
+      year={2026},
+      eprint={2605.16138},
       archivePrefix={arXiv},
       primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2501.05515},
+      url={https://arxiv.org/abs/2605.16138} 
 }
 ```
