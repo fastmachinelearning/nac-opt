@@ -15,8 +15,8 @@ dataset:
 
 search:
   model_type: mlp
-  n_trials: 8
-  epochs: 3
+  n_trials: 10
+  epochs: 5
   use_hardware_metrics: true
   objective_names: [performance_metric, bops, avg_resource, clock_cycles]
   maximize_flags: [true, false, false, false]
@@ -45,9 +45,9 @@ hls_config:
 
 local_search:
   qat_epochs: 3
-  pruning_iterations: 5
+  pruning_iterations: 8
   pruning_epochs: 3
-  pruning_rate: 0.8
+  pruning_rate: 0.7
   precision_pairs:
     - {total_bits: 16, int_bits: 6}
     - {total_bits: 8,  int_bits: 3}

@@ -21,7 +21,9 @@ saved_models/
 results/
 memory/
 generated_configs/
-data/
+data/*
+# ...but keep the dataset loader modules (they fetch data at runtime, e.g. fetch_openml)
+!data/*.py
 
 
 # Optuna storage

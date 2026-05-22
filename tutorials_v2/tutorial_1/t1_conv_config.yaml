@@ -15,9 +15,9 @@ dataset:
 
 search:
   model_type: block
-  n_trials: 5
-  epochs: 3
-  n_folds: 2
+  n_trials: 6
+  epochs: 5
+  n_folds: 1
   use_hardware_metrics: false
   objective_names: [performance_metric, bops]
   maximize_flags: [true, false]
@@ -44,10 +44,10 @@ hls_config:
     strategy: Latency
 
 local_search:
-  qat_epochs: 3
-  pruning_iterations: 3
-  pruning_epochs: 3
-  pruning_rate: 0.7
+  qat_epochs: 5
+  pruning_iterations: 6
+  pruning_epochs: 5
+  pruning_rate: 0.6
   precision_pairs:
     - {total_bits: 8, int_bits: 3}
     - {total_bits: 4, int_bits: 1}

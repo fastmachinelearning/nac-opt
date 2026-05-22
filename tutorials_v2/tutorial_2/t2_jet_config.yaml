@@ -9,7 +9,8 @@
 
 dataset:
   name: hls4ml_jets
-  subset_size: 20000      # subsample training split; test split is always full (~166k)
+  subset_size: 5000        # subsample training split (full split is ~664k)
+  val_subset_size: 8000    # stratified subsample of the ~166k test split used for per-epoch validation
   normalize: true
   flatten: true
   one_hot: true
@@ -17,9 +18,9 @@ dataset:
 
 search:
   model_type: block
-  n_trials: 2
-  epochs: 10
-  n_folds: 3
+  n_trials: 20
+  epochs: 5
+  n_folds: 1
   use_hardware_metrics: true
   objective_names: [performance_metric, bops, avg_resource, clock_cycles]
   maximize_flags: [true, false, false, false]
