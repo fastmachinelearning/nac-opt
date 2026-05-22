@@ -181,6 +181,16 @@ def normalize_dataset_spec(dataset_spec: Dict[str, Any]) -> Dict[str, Any]:
 
 def _normalize_constraints(constraints: Dict[str, Any] | None) -> Dict[str, Any]:
     constraints = deepcopy(constraints or {})
+    constraint_aliases = (
+        ("n_trials", "max_trials"),
+        ("num_trials", "max_trials"),
+        ("trials", "max_trials"),
+        ("num_epochs", "epochs"),
+        ("n_epochs", "epochs"),
+    )
+    for src, dst in constraint_aliases:
+        if src in constraints and dst not in constraints:
+            constraints[dst] = constraints.pop(src)
     constraints.setdefault("search_style", "balanced")
     constraints.setdefault("open_ended", True)
     constraints.setdefault("local_search", {})

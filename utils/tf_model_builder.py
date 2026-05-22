@@ -5,8 +5,27 @@ Supports building models from configurations and search spaces.
 
 import tensorflow as tf
 from tensorflow.keras.models import Sequential, Model
-from tensorflow.keras.layers import Input, Dense, BatchNormalization, Activation, Dropout, LayerNormalization
+from tensorflow.keras.layers import Input, Dense, BatchNormalization, Activation, Dropout, LayerNormalization, LeakyReLU
 import yaml
+
+
+def _make_mlp_activation_layer(name):
+    """
+    Convert an activation name (lowercase or Title-cased) to a Keras layer.
+
+    Returns None when the name is None or "Identity" so the caller can skip
+    adding an activation layer. The planner emits names matching tf_blocks
+    (``ReLU``, ``LeakyReLU``, ``GELU``, ``Identity``); tutorials emit Keras
+    lowercase names (``relu``, ``tanh``). Both shapes are normalized here.
+    """
+    if name is None:
+        return None
+    key = str(name).strip().lower().replace("_", "")
+    if key in ("", "none", "identity", "linear"):
+        return None
+    if key == "leakyrelu":
+        return LeakyReLU(alpha=0.01)
+    return Activation(key)
 
 
 def load_yaml_config(yaml_path):
@@ -42,64 +61,61 @@ def get_activation_layer(activation_name):
         return Activation(activation_name)
 
 
-def build_mlp_from_config(config, input_size=None, num_classes=None, learning_rate=0.001):
+def build_mlp_from_config(
+    config,
+    input_size=None,
+    num_classes=None,
+    learning_rate=0.001,
+    output_activation="softmax",
+):
     """
-    Creates a simple MLP model based on configuration.
-    
-    Parameters:
-        config (dict): Model configuration containing:
-            - num_layers: Number of layers (2 or 3)
-            - hidden_units1, activation1, batchnorm1: First layer params
-            - hidden_units2, activation2, batchnorm2: Second layer params (if num_layers=3)
-        input_size (int): Input dimension
-        num_classes (int): Number of output classes
-        learning_rate (float): Learning rate for optimizer
-    
-    Returns:
-        Compiled Keras model
+    Build a compiled MLP from a list-based trial config.
+
+    Config schema (as produced by tf_global_search.GlobalSearchTF objective):
+        - hidden_units: list[int] of hidden layer widths
+        - activations: list[str|None] aligned with hidden_units
+        - normalizations: list["batch"|None] aligned with hidden_units
+
+    `num_classes` and `output_activation` control the appended output layer.
     """
     model = Sequential(name="MLP_Model")
-    
+
     if input_size is not None:
         model.add(Input(shape=(input_size,)))
-    
-    # First hidden layer
-    if config.get("batchnorm1", False):
-        model.add(Dense(config["hidden_units1"], use_bias=False))
-        model.add(BatchNormalization())
-        if config.get("activation1") is not None:
-            model.add(Activation(config["activation1"]))
-    else:
-        if config.get("activation1") is not None:
-            model.add(Dense(config["hidden_units1"], activation=config["activation1"]))
-        else:
-            model.add(Dense(config["hidden_units1"]))
-    
-    # Optional second hidden layer
-    if config.get("num_layers", 2) >= 3:
-        if config.get("batchnorm2", False):
-            model.add(Dense(config["hidden_units2"], use_bias=False))
+
+    hidden_units = list(config.get("hidden_units", []))
+    activations = list(config.get("activations", [None] * len(hidden_units)))
+    normalizations = list(config.get("normalizations", [None] * len(hidden_units)))
+
+    if len(activations) != len(hidden_units) or len(normalizations) != len(hidden_units):
+        raise ValueError(
+            "build_mlp_from_config: hidden_units, activations, and normalizations must be the same length. "
+            f"Got hidden_units={len(hidden_units)}, activations={len(activations)}, normalizations={len(normalizations)}."
+        )
+
+    for units, act, norm in zip(hidden_units, activations, normalizations):
+        if norm == "batch":
+            model.add(Dense(units, use_bias=False))
             model.add(BatchNormalization())
-            if config.get("activation2") is not None:
-                model.add(Activation(config["activation2"]))
         else:
-            if config.get("activation2") is not None:
-                model.add(Dense(config["hidden_units2"], activation=config["activation2"]))
-            else:
-                model.add(Dense(config["hidden_units2"]))
-    
-    # Output layer
+            model.add(Dense(units))
+        act_layer = _make_mlp_activation_layer(act)
+        if act_layer is not None:
+            model.add(act_layer)
+
     if num_classes is not None:
-        model.add(Dense(num_classes, activation="softmax"))
-    
-    # Build and compile
+        model.add(Dense(num_classes))
+        out_layer = _make_mlp_activation_layer(output_activation)
+        if out_layer is not None:
+            model.add(out_layer)
+
     if input_size is not None:
         model.build((None, input_size))
-    
+
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
         loss="categorical_crossentropy",
-        metrics=["accuracy"]
+        metrics=["accuracy"],
     )
     
     return model

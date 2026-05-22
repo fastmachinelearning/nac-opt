@@ -197,24 +197,55 @@ def run_qat_only_loop(base_model, dataset, config, results_dir, loss_function):
         
         _, val_acc = qat_model.evaluate(x_val, y_val, verbose=0)
         print(f"  -> Final accuracy for precision {precision_str}: {val_acc:.4f}")
-        with open(log_filename, "a") as f: f.write(f"'{precision_str}',{total_bits},{int_bits},{val_acc:.4f}\n")
+        with open(log_filename, "a") as f: f.write(f'"{precision_str}",{total_bits},{int_bits},{val_acc:.4f}\n')
         
     return pd.read_csv(log_filename)
+
+def pretrain_base_model(base_model, dataset, config, results_dir, loss_function):
+    """FP32 pretraining of the architecture loaded from YAML.
+
+    Global search persists only the best architecture, not its weights, so
+    ``load_model_from_yaml`` returns a randomly initialized model. Without
+    this step, QAT runs at a fine-tuning LR on random weights (stuck near
+    chance) and pruning rewinds to a random init (no real lottery ticket).
+    """
+    x_train, y_train, x_val, y_val = dataset
+    pretrain_config = config.get('pretrain_settings', {}) or {}
+    epochs = int(pretrain_config.get('epochs', 20))
+    learning_rate = float(pretrain_config.get('learning_rate', 1e-3))
+    batch_size = int(pretrain_config.get('batch_size', 128))
+
+    print(f"\n--- FP32 pretraining ({epochs} epochs, lr={learning_rate}) ---")
+    optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    base_model.compile(optimizer=optimizer, loss=loss_function, metrics=['accuracy'])
+    base_model.fit(x_train, y_train, validation_data=(x_val, y_val),
+                   epochs=epochs, batch_size=batch_size, verbose=1)
+    _, val_acc = base_model.evaluate(x_val, y_val, verbose=0)
+    print(f"  -> Pretrained FP32 accuracy: {val_acc:.4f}")
+
+    log_path = os.path.join(results_dir, "pretrain_log.csv")
+    with open(log_path, "w") as f:
+        f.write("Epochs,LearningRate,BatchSize,Accuracy\n")
+        f.write(f"{epochs},{learning_rate},{batch_size},{val_acc:.4f}\n")
+
+    return base_model
+
 
 def local_search_entrypoint(architecture_yaml_path, local_search_config_path, dataset, results_dir, run_pruning=True):
     """
     Main entrypoint that runs local search experiments. Pruning is optional.
     """
     print("\n" + "="*50 + "\n STARTING SEPARATED LOCAL SEARCH STAGE \n" + "="*50)
-    
+
     os.makedirs(results_dir, exist_ok=True)
     with open(local_search_config_path, 'r') as f: config = yaml.safe_load(f)
-    
+
     x_train, y_train, x_val, y_val = dataset
     loss_function = 'categorical_crossentropy' if len(y_train.shape) > 1 and y_train.shape[1] > 1 else 'sparse_categorical_crossentropy'
 
     base_model = load_model_from_yaml(architecture_yaml_path)
-    
+    base_model = pretrain_base_model(base_model, dataset, config, results_dir, loss_function)
+
     pruning_df = pd.DataFrame() # Initialize empty dataframe
     if run_pruning:
         if 'pruning_settings' in config:

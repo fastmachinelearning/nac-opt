@@ -1,0 +1,50 @@
+# Quick low-cost MNIST classifier search
+# 3 trials, 2 epochs, no hardware metrics, no local search
+
+dataset:
+  name: mnist
+  resize_val: 8
+  subset_size: 5000
+  flatten: true
+  one_hot: true
+
+search:
+  model_type: mlp
+  n_trials: 3
+  epochs: 2
+  use_hardware_metrics: false
+  objective_names: [performance_metric, bops]
+  maximize_flags: [true, false]
+
+search_space:
+  mlp_width_space: [16, 32, 64]
+  act_space: [relu, tanh]
+  norm_space: [null, batch]
+  block_types: [MLP]
+  num_blocks: 3
+  initial_img_size: 8
+  output_dim: 10
+  output_activation: softmax
+  # Required dummy keys for validation:
+  channel_space: [16, 32]
+  kernel_space: [3]
+  conv_attn:
+    hidden_channel_space: [4]
+
+hls_config:
+  board: zcu102
+  model:
+    precision: "ap_fixed<8,3>"
+    reuse_factor: 1
+    strategy: Latency
+
+local_search:
+  qat_epochs: 2
+  pruning_iterations: 5
+  pruning_epochs: 2
+  pruning_rate: 0.8
+  precision_pairs:
+    - {total_bits: 8,  int_bits: 3}
+
+output:
+  results_dir: ./results/quick_mnist

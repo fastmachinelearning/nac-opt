@@ -24,7 +24,30 @@ def infer_constraints_from_request(request_text: str) -> Dict[str, Any]:
     else:
         constraints["search_style"] = "balanced"
 
-    if any(word in text for word in ("latency", "resource", "hardware", "fpga", "board", "throughput", "cycles")):
+    hardware_negations = (
+        "no hardware",
+        "without hardware",
+        "no fpga",
+        "without fpga",
+        "skip hardware",
+        "ignore hardware",
+        "no hls",
+        "no hardware constraints",
+        "no hardware metrics",
+    )
+    hardware_keywords = (
+        "latency",
+        "resource",
+        "hardware",
+        "fpga",
+        "board",
+        "throughput",
+        "cycles",
+        "rule4ml",
+        "hls4ml",
+    )
+    has_hw_negation = any(neg in text for neg in hardware_negations)
+    if not has_hw_negation and any(kw in text for kw in hardware_keywords):
         constraints["use_hardware_metrics"] = True
         constraints["prefer_low_latency"] = True
 
@@ -32,6 +55,32 @@ def infer_constraints_from_request(request_text: str) -> Dict[str, Any]:
         constraints["disable_local_search"] = True
     if "local search" in text and "no local search" not in text:
         constraints.setdefault("local_search", {})
+        light_local_phrases = (
+            "quick local",
+            "fast local",
+            "short local",
+            "light local",
+            "brief local",
+            "small local",
+            "quick qat",
+            "smoke test the local",
+            "smoke-test the local",
+            "don't take too long",
+            "keep it short",
+            "keep local search short",
+        )
+        heavy_local_phrases = (
+            "thorough local",
+            "long local",
+            "full local",
+            "heavy local",
+            "deep local",
+            "exhaustive local",
+        )
+        if any(phrase in text for phrase in light_local_phrases):
+            constraints["local_search"].setdefault("budget", "light")
+        elif any(phrase in text for phrase in heavy_local_phrases):
+            constraints["local_search"].setdefault("budget", "heavy")
 
     if "mlp" in text:
         constraints["model_family"] = "mlp"

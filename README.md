@@ -430,7 +430,6 @@ utils/
 data/
   qubit_dataset.py                Qubit IQ data loader
   qubit/                          Raw qubit .npy data files (X/y train+test)
-pytorch_NAC/                      Archived PyTorch NAC code (not used by TF pipeline)
 ```
 
 ## Architecture Search Details

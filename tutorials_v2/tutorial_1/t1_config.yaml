@@ -1,0 +1,57 @@
+# Tutorial 1-v2: Hardware-aware MLP search on MNIST
+# ===================================================
+# Surrogate ON: 4 objectives (accuracy, BOPs, avg FPGA resources, clock cycles).
+# Kept small for live demos — n_trials=8, epochs=3, subset_size=10000.
+#
+# NOTE: rule4ml (hardware metrics) needs the conda library path at runtime:
+#   export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+
+dataset:
+  name: mnist
+  resize_val: 8
+  subset_size: 10000
+  flatten: true
+  one_hot: true
+
+search:
+  model_type: mlp
+  n_trials: 8
+  epochs: 3
+  use_hardware_metrics: true
+  objective_names: [performance_metric, bops, avg_resource, clock_cycles]
+  maximize_flags: [true, false, false, false]
+
+search_space:
+  mlp_width_space: [8, 16, 32, 64, 128]
+  act_space: [relu, tanh, sigmoid]
+  norm_space: [null, batch]
+  block_types: [MLP]
+  num_blocks: 3
+  initial_img_size: 8
+  output_dim: 10
+  output_activation: softmax
+  # Required dummy keys (validator demands them even for MLP-only searches):
+  channel_space: [16, 32]
+  kernel_space: [3]
+  conv_attn:
+    hidden_channel_space: [4]
+
+hls_config:
+  board: zcu102
+  model:
+    precision: "ap_fixed<8,3>"
+    reuse_factor: 1
+    strategy: Latency
+
+local_search:
+  qat_epochs: 3
+  pruning_iterations: 5
+  pruning_epochs: 3
+  pruning_rate: 0.8
+  precision_pairs:
+    - {total_bits: 16, int_bits: 6}
+    - {total_bits: 8,  int_bits: 3}
+    - {total_bits: 4,  int_bits: 1}
+
+output:
+  results_dir: ./results/tutorial1_mlp

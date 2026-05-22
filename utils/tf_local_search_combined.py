@@ -378,7 +378,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                 all_rows.append(row)
                 with open(log_path, "a") as f:
                     f.write(
-                        f"'{precision_str}',{total_bits},{int_bits},0,"
+                        f'"{precision_str}",{total_bits},{int_bits},0,'
                         f"0.0000,{avg_acc_baseline:.4f},{effective_bops_baseline:.2e}\n"
                     )
 
@@ -416,7 +416,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                     all_rows.append(row)
                     with open(log_path, "a") as f:
                         f.write(
-                            f"'{precision_str}',{total_bits},{int_bits},{i + 1},"
+                            f'"{precision_str}",{total_bits},{int_bits},{i + 1},'
                             f"{avg_sparsity:.4f},{avg_acc:.4f},{effective_bops:.2e}\n"
                         )
 
@@ -487,7 +487,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                 all_rows.append(row)
                 with open(log_path, "a") as f:
                     f.write(
-                        f"'{precision_str}',{total_bits},{int_bits},0,"
+                        f'"{precision_str}",{total_bits},{int_bits},0,'
                         f"0.0000,{val_acc_baseline:.4f},{effective_bops_baseline:.2e}\n"
                     )
 
@@ -560,7 +560,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                     all_rows.append(row)
                     with open(log_path, "a") as f:
                         f.write(
-                            f"'{precision_str}',{total_bits},{int_bits},{i + 1},"
+                            f'"{precision_str}",{total_bits},{int_bits},{i + 1},'
                             f"{actual_sparsity:.4f},{val_acc:.4f},{effective_bops:.2e}\n"
                         )
 

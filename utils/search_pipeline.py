@@ -15,6 +15,7 @@ with the same YAML config structure used by the tutorial scripts
 from __future__ import annotations
 
 import os
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, Tuple
 
@@ -81,6 +82,10 @@ def _resolve_dataset_loader_kwargs(
         "sample_count",
         "task_type",
         "notes",
+        "num_classes",
+        "dataset_path",
+        "resolved_path",
+        "constraints_hint",
     }
     for key, value in dataset_cfg.items():
         if key in info_only_keys or key == "loader_kwargs":
@@ -117,7 +122,6 @@ def _load_dataset_for_local_search(
         )
         x_train, y_train, _, _ = load_generic_dataset(
             dataset_name=dataset_name,
-            loader_path=dataset_cfg.get("loader_path"),
             **loader_kwargs,
         )
         x_val_empty = np.empty((0, *x_train.shape[1:]), dtype=x_train.dtype)
@@ -132,7 +136,6 @@ def _load_dataset_for_local_search(
     )
     return load_generic_dataset(
         dataset_name=dataset_name,
-        loader_path=dataset_cfg.get("loader_path"),
         **loader_kwargs,
     )
 
@@ -365,9 +368,182 @@ def run_agentic_search(
     return summary
 
 
+def _detect_local_search_mode(arch_config: Dict[str, Any]) -> str:
+    """
+    Infer the right local-search dispatch from a parsed best-architecture YAML.
+
+    MLP-only architectures (only MLP and optional Flatten blocks) go through
+    the separated pruning+QAT loop. Anything with Conv or ConvAttn blocks
+    needs the combined entrypoint.
+    """
+    components = arch_config.get("architecture", {}).get("components", [])
+    block_types = {str(c.get("block_type", "")) for c in components}
+    if block_types - {"MLP", "Flatten", ""}:
+        return "combined"
+    return "separated"
+
+
+def _flat_to_nested_local_config(flat: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert planner-style flat local_search keys to the nested form the entrypoints consume."""
+    return {
+        "pruning_settings": {
+            "iterations": int(flat["pruning_iterations"]),
+            "epochs_per_iteration": int(flat["pruning_epochs"]),
+            "pruning_rate": float(flat["pruning_rate"]),
+        },
+        "qat_settings": {
+            "epochs": int(flat["qat_epochs"]),
+            "precision_pairs": list(flat["precision_pairs"]),
+        },
+    }
+
+
+def _resolve_dataset_for_local_search(
+    *,
+    dataset_spec: Dict[str, Any] | None,
+    dataset_name: str | None,
+    dataset_path: str | None,
+    flatten: bool,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, Dict[str, Any]]:
+    """
+    Load the dataset given any of the three spec styles. Returns the split
+    plus the resolved spec dict (handy for the caller's summary).
+    """
+    from utils.dataset_inspector import inspect_dataset_path
+
+    if dataset_spec is None and dataset_path:
+        dataset_spec = inspect_dataset_path(dataset_path)
+    elif dataset_spec is None and dataset_name:
+        dataset_spec = {"name": dataset_name}
+
+    if dataset_spec is None:
+        raise ValueError("Provide dataset_spec, dataset_name, or dataset_path.")
+
+    spec = deepcopy(dataset_spec)
+    loader_kwargs = dict(spec.get("loader_kwargs", {}))
+
+    info_keys = {
+        "name", "display_name", "description", "loader_path", "modality",
+        "input_shape", "sample_count", "task_type", "notes", "num_classes",
+        "dataset_path", "resolved_path", "constraints_hint",
+    }
+    for key, value in spec.items():
+        if key in info_keys or key == "loader_kwargs":
+            continue
+        loader_kwargs.setdefault(key, value)
+
+    loader_kwargs["flatten"] = bool(flatten)
+    loader_kwargs.setdefault("one_hot", True)
+    loader_kwargs.setdefault("normalize", True)
+
+    name = str(spec.get("name") or dataset_name or "custom_dataset")
+    x_train, y_train, x_val, y_val = load_generic_dataset(dataset_name=name, **loader_kwargs)
+    return x_train, y_train, x_val, y_val, spec
+
+
+def run_local_search(
+    architecture_yaml_path: str | Path,
+    *,
+    dataset_spec: Dict[str, Any] | None = None,
+    dataset_name: str | None = None,
+    dataset_path: str | None = None,
+    local_search_config: Dict[str, Any] | None = None,
+    budget: str | None = None,
+    mode: str = "auto",
+    results_dir: str | Path | None = None,
+    n_folds: int = 1,
+) -> Dict[str, Any]:
+    """
+    Run local search (QAT + pruning) on an existing best-architecture YAML.
+
+    The caller can describe the dataset three ways:
+        - ``dataset_spec``: a dict matching the inspector output (highest fidelity)
+        - ``dataset_path``: a file path, inspected on the fly
+        - ``dataset_name``: a built-in dataset name (mnist / fashion_mnist / qubit)
+
+    The local-search knobs come from ``local_search_config`` (flat planner format)
+    OR ``budget`` (``light`` / ``balanced`` / ``heavy``). ``mode`` is
+    ``auto`` (detect from architecture YAML), ``separated``, or ``combined``.
+
+    Returns a summary dict with paths and dataframes the agent can read back.
+    """
+    import yaml as _yaml
+    from utils.search_planner import _build_local_search_config
+
+    arch_path = Path(architecture_yaml_path).expanduser().resolve()
+    if not arch_path.is_file():
+        raise FileNotFoundError(f"Architecture YAML not found: {arch_path}")
+
+    with open(arch_path, "r", encoding="utf-8") as handle:
+        arch_config = _yaml.safe_load(handle)
+
+    resolved_mode = mode if mode != "auto" else _detect_local_search_mode(arch_config)
+    if resolved_mode not in ("separated", "combined"):
+        raise ValueError(f"Unknown local-search mode: {mode!r}")
+
+    if local_search_config is None:
+        budget = (budget or "balanced").lower()
+        constraints = {"local_search": {"budget": budget}}
+        flat_cfg, _ = _build_local_search_config(constraints, use_hardware_metrics=False)
+    else:
+        flat_cfg = dict(local_search_config)
+
+    input_shape = arch_config.get("architecture", {}).get("input_shape", [])
+    flatten = len(input_shape) == 1
+
+    if results_dir is None:
+        subdir = "local_search_combined" if resolved_mode == "combined" else "local_search_separated"
+        results_dir = arch_path.parent / subdir
+    results_dir = Path(results_dir).expanduser().resolve()
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    local_config_path = results_dir / "local_search_config.yaml"
+    with open(local_config_path, "w", encoding="utf-8") as handle:
+        _yaml.safe_dump(_flat_to_nested_local_config(flat_cfg), handle)
+
+    x_train, y_train, x_val, y_val, resolved_spec = _resolve_dataset_for_local_search(
+        dataset_spec=dataset_spec,
+        dataset_name=dataset_name,
+        dataset_path=dataset_path,
+        flatten=flatten,
+    )
+
+    summary: Dict[str, Any] = {
+        "architecture_yaml": str(arch_path),
+        "local_search_config_path": str(local_config_path),
+        "results_dir": str(results_dir),
+        "mode": resolved_mode,
+        "budget": budget,
+        "flat_local_search_config": flat_cfg,
+        "dataset_spec": resolved_spec,
+    }
+
+    if resolved_mode == "separated":
+        pruning_df, qat_df = local_search_entrypoint(
+            architecture_yaml_path=str(arch_path),
+            local_search_config_path=str(local_config_path),
+            dataset=(x_train, y_train, x_val, y_val),
+            results_dir=str(results_dir),
+        )
+        summary["pruning_rows"] = pruning_df.to_dict(orient="records") if pruning_df is not None else None
+        summary["qat_rows"] = qat_df.to_dict(orient="records") if qat_df is not None else None
+    else:
+        combined_df = combined_local_search_entrypoint(
+            architecture_yaml_path=str(arch_path),
+            local_search_config_path=str(local_config_path),
+            dataset=(x_train, y_train, x_val, y_val),
+            results_dir=str(results_dir),
+            n_folds=int(n_folds),
+        )
+        summary["combined_rows"] = combined_df.to_dict(orient="records") if combined_df is not None else None
+
+    return summary
+
+
 __all__ = [
     "materialize_config",
     "run_agentic_search",
+    "run_local_search",
     "run_pipeline_from_config",
     "run_pipeline_from_spec",
 ]

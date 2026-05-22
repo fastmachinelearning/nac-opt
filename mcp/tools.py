@@ -1,9 +1,44 @@
+import contextlib
+import functools
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, List
 
 import yaml
+from typing_extensions import TypedDict
+
+
+def _stdout_safe(fn: Callable) -> Callable:
+    """
+    Redirect ``sys.stdout`` to ``sys.stderr`` for the duration of the wrapped
+    call. Required for every MCP-exposed tool: under stdio transport, fd 1 is
+    the JSON-RPC channel, so any ``print`` from search/TF code would corrupt
+    the protocol and the client would hang waiting for a parseable response.
+
+    The transport captured its own reference to stdout at server startup, so
+    swapping ``sys.stdout`` here only affects user code.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with contextlib.redirect_stdout(sys.stderr):
+            return fn(*args, **kwargs)
+
+    return wrapper
+
+
+class PrecisionPair(TypedDict):
+    total_bits: int
+    int_bits: int
+
+
+class LocalSearchConfig(TypedDict):
+    qat_epochs: int
+    pruning_iterations: int
+    pruning_epochs: int
+    pruning_rate: float
+    precision_pairs: List[PrecisionPair]
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -156,6 +191,123 @@ def describe_dataset(dataset_name: str) -> str:
     from utils.dataset_catalog import describe_dataset as _describe_dataset
 
     return yaml_dump(_describe_dataset(dataset_name))
+
+
+def run_local_search(
+    architecture_relative_path: str,
+    dataset_name: str | None = None,
+    dataset_path: str | None = None,
+    dataset_spec: dict | None = None,
+    local_search_config: LocalSearchConfig | None = None,
+    budget: str | None = None,
+    mode: str = "auto",
+    results_relative_path: str | None = None,
+    n_folds: int = 1,
+) -> str:
+    """
+    Run local search (QAT + iterative pruning) on an existing best-architecture YAML.
+
+    Provide exactly one of ``budget`` or ``local_search_config``:
+      - ``budget``: one of "light", "balanced", "heavy" (uses planner defaults).
+      - ``local_search_config``: a flat dict with ALL of these required keys
+        (no aliases are accepted):
+
+            {
+              "qat_epochs": int,                # QAT warmup epochs
+              "pruning_iterations": int,        # number of iterative pruning steps
+              "pruning_epochs": int,            # fine-tune epochs per pruning step
+              "pruning_rate": float,            # in (0, 1]; sparsity schedule base
+              "precision_pairs": [              # list of QKeras quant pairs
+                {"total_bits": int, "int_bits": int},
+                ...
+              ]
+            }
+
+        Do NOT pass alternate names like "epochs", "precision_options",
+        or "pruning_targets" - they will cause a KeyError. If you want
+        looser control, omit local_search_config and use budget instead.
+
+    Dataset is supplied by exactly one of dataset_spec, dataset_path, or
+    dataset_name. ``mode`` is "auto" (detect from architecture YAML),
+    "separated" (MLP: pruning then QAT), or "combined" (Conv/ConvAttn:
+    simultaneous QAT+pruning with optional k-fold CV).
+    """
+    from utils.search_pipeline import run_local_search as _run_local_search
+
+    arch_path = _resolve_repo_path(architecture_relative_path)
+    if not arch_path.is_file():
+        raise FileNotFoundError(f"Architecture YAML not found: {architecture_relative_path}")
+
+    resolved_dataset_path = str(_resolve_repo_path(dataset_path)) if dataset_path else None
+    results_dir = _resolve_repo_path(results_relative_path) if results_relative_path else None
+
+    summary = _run_local_search(
+        architecture_yaml_path=arch_path,
+        dataset_spec=dataset_spec,
+        dataset_name=dataset_name,
+        dataset_path=resolved_dataset_path,
+        local_search_config=local_search_config,
+        budget=budget,
+        mode=mode,
+        results_dir=results_dir,
+        n_folds=n_folds,
+    )
+
+    def _to_relative(value):
+        if isinstance(value, str):
+            try:
+                return str(Path(value).resolve().relative_to(REPO_ROOT))
+            except (ValueError, OSError):
+                return value
+        if isinstance(value, dict):
+            return {k: _to_relative(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [_to_relative(v) for v in value]
+        return value
+
+    safe_summary = {
+        "architecture_yaml": _to_relative(summary.get("architecture_yaml")),
+        "results_dir": _to_relative(summary.get("results_dir")),
+        "local_search_config_path": _to_relative(summary.get("local_search_config_path")),
+        "mode": summary.get("mode"),
+        "budget": summary.get("budget"),
+        "flat_local_search_config": summary.get("flat_local_search_config"),
+        "pruning_rows": summary.get("pruning_rows"),
+        "qat_rows": summary.get("qat_rows"),
+        "combined_rows": summary.get("combined_rows"),
+    }
+    return yaml_dump(safe_summary)
+
+
+def read_search_results(results_relative_path: str, top_n: int = 5) -> str:
+    """
+    Parse a SNAC-Pack results directory and return a structured summary
+    covering global search trials, the selected best architecture, and any
+    local-search QAT/pruning logs.
+    """
+    from utils.results_reader import read_search_results as _read_search_results
+
+    results_path = _resolve_repo_path(results_relative_path)
+    if not results_path.is_dir():
+        raise FileNotFoundError(f"Results directory does not exist: {results_relative_path}")
+
+    summary = _read_search_results(results_path, top_n=top_n)
+
+    def _normalize(value):
+        if isinstance(value, str):
+            try:
+                relative = Path(value).resolve().relative_to(REPO_ROOT)
+            except (ValueError, OSError):
+                return value
+            return str(relative)
+        if isinstance(value, dict):
+            return {k: _normalize(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [_normalize(v) for v in value]
+        return value
+
+    summary = _normalize(summary)
+    return yaml_dump(summary)
 
 
 def run_agentic_search(
@@ -383,6 +535,142 @@ OPENAI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "run_local_search",
+            "description": (
+                "Run local search (QAT + iterative pruning) on an existing best-architecture YAML, "
+                "without re-running global search. Useful for trying heavier local-search budgets, "
+                "different precision pairs, or forcing the combined path. The mode is auto-detected "
+                "from the architecture (MLP-only -> separated; Conv/ConvAttn -> combined) unless overridden."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "architecture_relative_path": {
+                        "type": "string",
+                        "description": "Repo-relative path to a best_model_for_local_search.yaml (or trial_*_arch.yaml).",
+                    },
+                    "dataset_name": {
+                        "type": "string",
+                        "description": "Built-in dataset name such as mnist, fashion_mnist, or qubit.",
+                    },
+                    "dataset_path": {
+                        "type": "string",
+                        "description": "Repo-relative path to a dataset file or directory (inspected via dataset_inspector).",
+                    },
+                    "dataset_spec": {
+                        "type": "object",
+                        "description": "Pre-built dataset spec (inspector output) with loader_kwargs.",
+                        "additionalProperties": True,
+                    },
+                    "local_search_config": {
+                        "type": "object",
+                        "description": (
+                            "Flat planner-style local_search config. All five keys are REQUIRED "
+                            "with exactly these names - no aliases (e.g. do NOT use 'epochs', "
+                            "'precision_options', or 'pruning_targets'). Mutually exclusive with budget; "
+                            "if you want looser control, omit this and pass budget instead."
+                        ),
+                        "properties": {
+                            "qat_epochs": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "QAT warmup epochs.",
+                            },
+                            "pruning_iterations": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "Number of iterative magnitude-pruning steps.",
+                            },
+                            "pruning_epochs": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "Fine-tuning epochs per pruning step.",
+                            },
+                            "pruning_rate": {
+                                "type": "number",
+                                "exclusiveMinimum": 0,
+                                "maximum": 1,
+                                "description": "Base of the sparsity schedule, in (0, 1].",
+                            },
+                            "precision_pairs": {
+                                "type": "array",
+                                "minItems": 1,
+                                "description": "List of QKeras quantization pairs to sweep.",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "total_bits": {"type": "integer", "minimum": 1},
+                                        "int_bits": {"type": "integer", "minimum": 0},
+                                    },
+                                    "required": ["total_bits", "int_bits"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": [
+                            "qat_epochs",
+                            "pruning_iterations",
+                            "pruning_epochs",
+                            "pruning_rate",
+                            "precision_pairs",
+                        ],
+                        "additionalProperties": False,
+                    },
+                    "budget": {
+                        "type": "string",
+                        "description": "Shortcut for local-search intensity: 'light', 'balanced', or 'heavy'. Ignored when local_search_config is provided.",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "'auto' (default), 'separated' (MLP-style: pruning then QAT), or 'combined' (block-style: simultaneous QAT+pruning).",
+                        "default": "auto",
+                    },
+                    "results_relative_path": {
+                        "type": "string",
+                        "description": "Optional repo-relative path for the local-search outputs. Defaults to a sibling directory next to the architecture YAML.",
+                    },
+                    "n_folds": {
+                        "type": "integer",
+                        "description": "K-folds for combined mode (ignored in separated mode).",
+                        "default": 1,
+                    },
+                },
+                "required": ["architecture_relative_path"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_search_results",
+            "description": (
+                "Read a SNAC-Pack results directory and return a structured summary: "
+                "global-search trial table, top-N trials by performance, best architecture YAML, "
+                "and local-search QAT/pruning logs (separated or combined). Use this instead of "
+                "writing ad-hoc CSV-reading scripts after a search run."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "results_relative_path": {
+                        "type": "string",
+                        "description": "Repo-relative path to the results directory (e.g. results/planned_iris).",
+                    },
+                    "top_n": {
+                        "type": "integer",
+                        "description": "Number of top-performing trials to surface in top_by_performance.",
+                        "default": 5,
+                    },
+                },
+                "required": ["results_relative_path"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "run_agentic_search",
             "description": (
                 "Run the end-to-end LLM-facing workflow from plain-English request text plus either a local dataset path or a built-in dataset name: inspect or describe the dataset, infer constraints, generate config, and execute the search."
@@ -431,6 +719,8 @@ TOOL_REGISTRY = {
     "inspect_dataset": inspect_dataset,
     "recommend_search_plan": recommend_search_plan,
     "create_search_config": create_search_config,
+    "read_search_results": read_search_results,
+    "run_local_search": run_local_search,
     "run_agentic_search": run_agentic_search,
     "run_search_pipeline": run_search_pipeline,
     "run_search_pipeline_from_spec": run_search_pipeline_from_spec,

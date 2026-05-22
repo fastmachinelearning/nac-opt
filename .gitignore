@@ -11,6 +11,7 @@ __pycache__/
 
 # Tutorial outputs (search results, CSVs, trial YAMLs, plots, local search weights)
 tutorials/*/results/
+tutorials_v2/*/results/
 
 # Saved model weights
 *.h5
@@ -18,6 +19,10 @@ tutorials/*/results/
 *.keras
 saved_models/
 results/
+memory/
+generated_configs/
+data/
+
 
 # Optuna storage
 *.db
@@ -34,3 +39,29 @@ optuna/
 data/qubit/*.npy
 
 qubit/
+
+tutorials_v2/make_notebooks.py
+
+# Python build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Test / type / lint caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Generic logs
+*.log

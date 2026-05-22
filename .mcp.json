@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "nac-opt": {
+      "type": "stdio",
+      "command": "/Users/dimstademler/Desktop/eth-local/snac_pack/nac-opt-mcp/mcp/launch_nac_opt_mcp.sh",
+      "args": [],
+      "env": {
+        "NAC_OPT_CONDA_SH": "/opt/miniconda3/etc/profile.d/conda.sh",
+        "NAC_OPT_CONDA_ENV": "snac-pack-refactor",
+        "MPLBACKEND": "Agg"
+      }
+    }
+  }
+}

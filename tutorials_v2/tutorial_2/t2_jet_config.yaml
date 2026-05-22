@@ -1,0 +1,63 @@
+# Tutorial 2-jet: hls4ml jet tagging search — from search to silicon
+#
+# The jet tagging dataset (hls4ml_lhc_jets_hlf) is downloaded automatically
+# on the first run via sklearn.datasets.fetch_openml and cached under
+# ~/.scikit_learn_data.  Subsequent runs load from the cache.
+#
+# rule4ml hardware metrics require the conda library path:
+#   export LD_LIBRARY_PATH="$CONDA_PREFIX/lib:${LD_LIBRARY_PATH:-}"
+
+dataset:
+  name: hls4ml_jets
+  subset_size: 20000      # subsample training split; test split is always full (~166k)
+  normalize: true
+  flatten: true
+  one_hot: true
+  num_classes: 5
+
+search:
+  model_type: block
+  n_trials: 2
+  epochs: 10
+  n_folds: 3
+  use_hardware_metrics: true
+  objective_names: [performance_metric, bops, avg_resource, clock_cycles]
+  maximize_flags: [true, false, false, false]
+
+search_space:
+  mlp_width_space: [16, 32, 64, 128]
+  act_space: [ReLU, LeakyReLU]
+  norm_space: [batch, null]
+  block_types: [MLP, None]
+  num_blocks: 4
+  output_dim: 5
+  output_activation: softmax
+  channel_space: [16, 32]        # dummy — unused for MLP-only block search
+  kernel_space: [3]              # dummy — unused
+  conv_attn:
+    hidden_channel_space: [4]    # dummy — unused
+
+hls_config:
+  board: zcu102
+  model:
+    precision: "ap_fixed<8,3>"
+    reuse_factor: 8
+    strategy: Latency
+
+synthesis:
+  total_bits: 8
+  int_bits: 3
+  hls_output_dir: ./results/tutorial2_jet/hls_project
+
+local_search:
+  qat_epochs: 10
+  pruning_iterations: 8
+  pruning_epochs: 10
+  pruning_rate: 0.60
+  precision_pairs:
+    - {total_bits: 16, int_bits: 6}
+    - {total_bits: 8,  int_bits: 3}
+    - {total_bits: 6,  int_bits: 2}
+
+output:
+  results_dir: ./results/tutorial2_jet
