@@ -4,8 +4,61 @@ Heuristics for turning a plain-English request into planner constraints.
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 import re
+
+# The three boards rule4ml actually knows about (from supported_boards.json).
+# Any other string passed as hls_config["board"] will raise ValueError in the estimator.
+SUPPORTED_BOARDS: List[str] = ["pynq-z2", "zcu102", "alveo-u200", "alveo-u250"]
+
+# Maps every reasonable human-language variant → canonical rule4ml board key.
+# Sorted longest-first at module load so the first match wins (more specific beats less).
+# More specific aliases (e.g. "alveo-u250") must appear before shorter ones ("alveo")
+# so that the longest-first sort resolves ambiguity correctly.
+BOARD_ALIASES: Dict[str, str] = {
+    # pynq-z2
+    "pynq-z2": "pynq-z2",
+    "pynq z2": "pynq-z2",
+    "pynq_z2": "pynq-z2",
+    "pynqz2": "pynq-z2",
+    "xc7z020": "pynq-z2",
+    "pynq": "pynq-z2",
+    "z2": "pynq-z2",
+    # zcu102
+    "zcu102": "zcu102",
+    "zcu 102": "zcu102",
+    "xczu9": "zcu102",
+    # alveo-u250 (listed before alveo-u200 and generic "alveo" so longest match wins)
+    "alveo-u250": "alveo-u250",
+    "alveo u250": "alveo-u250",
+    "alveo u 250": "alveo-u250",
+    "alveo_u250": "alveo-u250",
+    "alveou250": "alveo-u250",
+    "xcu250": "alveo-u250",
+    "u250": "alveo-u250",
+    # alveo-u200
+    "alveo-u200": "alveo-u200",
+    "alveo u200": "alveo-u200",
+    "alveo u 200": "alveo-u200",
+    "alveo_u200": "alveo-u200",
+    "alveou200": "alveo-u200",
+    "xcu200": "alveo-u200",
+    "u200": "alveo-u200",
+    # generic "alveo" falls back to u200 (smaller/more common in tutorials)
+    "alveo": "alveo-u200",
+}
+
+_SORTED_ALIASES = sorted(BOARD_ALIASES.keys(), key=len, reverse=True)
+
+
+def _resolve_board(text: str) -> Optional[str]:
+    """Return the canonical rule4ml board key for the first alias found in *text*, or None."""
+    for alias in _SORTED_ALIASES:
+        # Word-boundary guard: alias must not be immediately preceded/followed by [a-z0-9]
+        pattern = r"(?<![a-z0-9])" + re.escape(alias) + r"(?![a-z0-9])"
+        if re.search(pattern, text):
+            return BOARD_ALIASES[alias]
+    return None
 
 
 def infer_constraints_from_request(request_text: str) -> Dict[str, Any]:
@@ -130,10 +183,10 @@ def infer_constraints_from_request(request_text: str) -> Dict[str, Any]:
     if block_match:
         constraints["max_blocks"] = int(block_match.group(1))
 
-    board_match = re.search(r"\b(zcu102|vu13p|u250|u280)\b", text)
-    if board_match:
+    board = _resolve_board(text)
+    if board:
         constraints.setdefault("hardware", {})
-        constraints["hardware"]["board"] = board_match.group(1)
+        constraints["hardware"]["board"] = board
 
     latency_match = re.search(
         r"(?:latency(?:\s+budget)?|clock\s*cycles?|cycles?)\s*(?:under|below|<=|less than|at most|max(?:imum)?|target)?\s*([0-9][0-9_,.]*)",

@@ -86,7 +86,7 @@ Then run:
 
 ```bash
 python3 mcp/openai_compat_agent.py \
-  "Read README.md and summarize how to run tutorial 3."
+  "Read README.md and summarize how to run tutorial 1."
 ```
 
 The bridge exposes the same repo actions (`echo`, `read_repo_file`, and `run_search_pipeline`) as OpenAI-style tools, so the tool workflow works with OpenAI itself and with other providers that implement the same endpoint shape.
@@ -109,7 +109,7 @@ export OPENAI_MODEL="gpt-5"
 export OPENAI_MCP_SERVER_URL="https://your-public-host.example/mcp"
 
 python3 mcp/openai_responses_mcp_agent.py \
-  "Read README.md and summarize how to run tutorial 3."
+  "Read README.md and summarize how to run tutorial 1."
 ```
 
 This mode uses OpenAI's native `Responses API` MCP tool support. It is different from the generic compatibility bridge above:
@@ -350,30 +350,32 @@ Right now the automatic execution path is strongest for common local tabular cla
 
 ## Tutorials
 
-Three self-contained tutorials are provided, each with a Python script, Jupyter notebook, and YAML config. All parameters (search space, dataset, epochs, local search settings) are controlled through the config file — no code changes needed for common experiments.
+The `tutorials_v2/` directory contains a self-contained, notebook-driven walkthrough of SNAC-Pack. Each tutorial pairs a Jupyter notebook with one or more YAML configs. All parameters (search space, dataset, epochs, local search settings) are controlled through the config file — no code changes needed for common experiments.
 
-Run from the repo root:
+Launch any notebook with Jupyter from the repo root, e.g.:
 
 ```bash
-python tutorials/tutorial_1_mlp/tutorial_1_mlp.py     # MLP search on MNIST
-python tutorials/tutorial_2_block/tutorial_2_block.py  # Block-based search on Fashion-MNIST
-python tutorials/tutorial_3_qubit/tutorial_3_qubit.py  # Qubit readout classification
+jupyter lab tutorials_v2/tutorial_1/tutorial_1.ipynb
 ```
 
-| Tutorial | Dataset | Model Types | Hardware Metrics |
-|----------|---------|-------------|-----------------|
-| 1 — MLP | MNIST | MLP | Yes |
-| 2 — Block | Fashion-MNIST | Conv, ConvAttn, MLP | No |
-| 3 — Qubit | Superconducting qubit IQ data | MLP | Yes |
+| Tutorial | Topic | Dataset | Model Types | Hardware Metrics |
+|----------|-------|---------|-------------|-----------------|
+| 0 — Compression internals | How pruning and QAT actually work, step by step | MNIST | MLP | No |
+| 1 — Hardware-aware NAS | Full pipeline: global search → Pareto front → compression | MNIST | MLP (+ Conv/ConvAttn extension) | Yes |
+| 2 — LHC jet tagging | Full pipeline plus `hls4ml` C++ export, continuing the hls4ml tutorial | LHC jet tagging | MLP | Yes |
+
+- **Tutorial 0** opens up the local-search black box, demonstrating unstructured/iterative magnitude pruning and fixed-point quantization-aware training directly with `tensorflow_model_optimization` and QKeras.
+- **Tutorial 1** runs the complete pipeline on MNIST: a hardware-aware NSGA-II global search with the `rule4ml` surrogate, Pareto-front analysis, and compression of the best architecture. The optional extension (`t1_conv_config.yaml`) searches over `Conv`, `ConvAttn`, `MLP`, and `None` block types with the surrogate off.
+- **Tutorial 2** applies the full pipeline to the LHC jet tagging dataset and exports the compressed model to an HLS C++ project with `hls4ml`.
 
 ### Config-Driven Workflow
 
-Each tutorial reads all parameters from its config YAML. For example, to run more trials or enable hardware metrics in Tutorial 2, edit `tutorials/tutorial_2_block/t2_config.yaml`:
+Each tutorial reads all parameters from its config YAML. For example, to run more trials or change the hardware-aware objectives in Tutorial 1, edit `tutorials_v2/tutorial_1/t1_config.yaml`:
 
 ```yaml
 search:
-  n_trials: 50
-  epochs: 20
+  n_trials: 10
+  epochs: 5
   use_hardware_metrics: true
   objective_names: [performance_metric, bops, avg_resource, clock_cycles]
   maximize_flags: [true, false, false, false]
@@ -381,36 +383,13 @@ search:
 
 Results (CSV, Pareto front plots, per-trial YAML configs, best model config) are written to the directory specified by `output.results_dir` in the config.
 
-### Multi-Node Search (Tutorial 3)
-
-Tutorial 3 supports distributed search across multiple nodes via SLURM:
-
-```bash
-cd tutorials/tutorial_3_qubit
-
-# Single node via CLI
-python run_global_search.py --n_trials 1000 --epochs 20
-
-# With shared Optuna storage (SQLite or PostgreSQL)
-python run_global_search.py \
-    --n_trials 1000 \
-    --optuna_storage "sqlite:///./optuna.db" \
-    --optuna_study_name "qubit_search"
-
-# Multi-node via SLURM
-sbatch run_global_search_slurm.sh
-```
-
-Each worker writes its own CSV (`*_rank{N}.csv`) to avoid race conditions; merge them after the job completes.
-
 ## Repository Structure
 
 ```
-tutorials/
-  tutorial_1_mlp/        t1_config.yaml, tutorial_1_mlp.py, tutorial_1_mlp.ipynb
-  tutorial_2_block/      t2_config.yaml, tutorial_2_block.py, tutorial_2_block.ipynb
-  tutorial_3_qubit/      t3_config.yaml, tutorial_3_qubit.py, tutorial_3_qubit.ipynb
-                         run_global_search.py, run_global_search_slurm.sh
+tutorials_v2/
+  tutorial_0/            tutorial_0.ipynb  (compression internals: pruning + QAT)
+  tutorial_1/            t1_config.yaml, t1_conv_config.yaml, tutorial_1.ipynb  (MNIST hardware-aware NAS)
+  tutorial_2/            t2_jet_config.yaml, tutorial_2_jet.ipynb  (LHC jet tagging + hls4ml export)
 extras/
   animated_search_viz.py          Live Optuna search visualization callback
   create_3d_animation.py          3D Pareto front animation
@@ -430,13 +409,14 @@ utils/
 data/
   qubit_dataset.py                Qubit IQ data loader
   qubit/                          Raw qubit .npy data files (X/y train+test)
+  hls4ml_jets_dataset.py          LHC jet tagging dataset loader (Tutorial 2)
 ```
 
 ## Architecture Search Details
 
 ### Search Space
 
-The search space is defined in each tutorial's config YAML under the `search_space` key. The block-based search (Tutorials 2 & 3) supports four block types that can be combined in any order:
+The search space is defined in each tutorial's config YAML under the `search_space` key. The block-based search (Tutorial 1's Conv extension) supports four block types that can be combined in any order:
 
 - **MLP** — fully connected layers with configurable width, activation, and normalization
 - **Conv** — 2D convolution blocks

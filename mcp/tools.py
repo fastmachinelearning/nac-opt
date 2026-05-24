@@ -184,6 +184,80 @@ def list_available_datasets() -> str:
     return yaml_dump(_list_available_datasets())
 
 
+def list_available_boards() -> str:
+    """
+    List the FPGA boards supported by rule4ml for hardware-aware search.
+
+    Returns each board's canonical name (the value to pass in hls_config.board or
+    as a hardware constraint), its Xilinx part string, and its maximum resource counts.
+    Only these boards produce valid hardware estimates; any other board name will raise
+    an error in the estimator.
+    """
+    import json
+    from pathlib import Path as _Path
+
+    try:
+        import rule4ml.parsers as _parsers
+
+        boards_path = _Path(_parsers.__file__).parent / "supported_boards.json"
+        boards_data = json.loads(boards_path.read_text())
+    except Exception:
+        # Fallback if rule4ml is not installed in this environment.
+        boards_data = {
+            "pynq-z2": {
+                "part": "xc7z020clg400-1",
+                "max_bram": 280,
+                "max_dsp": 220,
+                "max_ff": 106400,
+                "max_lut": 53200,
+                "max_uram": 0,
+            },
+            "zcu102": {
+                "part": "xczu9eg-ffvb1156-2-e",
+                "max_bram": 1824,
+                "max_dsp": 2520,
+                "max_ff": 548160,
+                "max_lut": 274080,
+                "max_uram": 0,
+            },
+            "alveo-u200": {
+                "part": "xcu200-fsgd2104-2-e",
+                "max_bram": 4320,
+                "max_dsp": 6840,
+                "max_ff": 2364480,
+                "max_lut": 1182240,
+                "max_uram": 960,
+            },
+            "alveo-u250": {
+                "part": "xcu250-figd2104-2L-e",
+                "max_bram": 5376,
+                "max_dsp": 12288,
+                "max_ff": 3456000,
+                "max_lut": 1728000,
+                "max_uram": 1280,
+            },
+        }
+
+    from utils.request_inference import BOARD_ALIASES
+
+    # Build a reverse map: canonical name → list of recognized aliases
+    alias_map: dict = {}
+    for alias, canonical in BOARD_ALIASES.items():
+        alias_map.setdefault(canonical, []).append(alias)
+
+    result = {
+        "default_board": "zcu102",
+        "supported_boards": {
+            name: {
+                **specs,
+                "recognized_aliases": sorted(alias_map.get(name, [])),
+            }
+            for name, specs in boards_data.items()
+        },
+    }
+    return yaml_dump(result)
+
+
 def describe_dataset(dataset_name: str) -> str:
     """
     Describe one built-in dataset in a structured way.
@@ -497,6 +571,24 @@ OPENAI_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "list_available_boards",
+            "description": (
+                "List the FPGA boards supported by rule4ml for hardware-aware NAS. "
+                "Returns each board's canonical name (use this in constraints or hls_config), "
+                "its Xilinx part string, max resource counts (LUT/FF/DSP/BRAM/URAM), "
+                "and all recognized human-language aliases (e.g. 'pynq', 'z2', 'alveo'). "
+                "Call this before setting a board constraint to get the exact canonical name."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "describe_dataset",
             "description": "Return structured details for one built-in dataset, including shape, classes, loader, and local availability.",
             "parameters": {
@@ -715,6 +807,7 @@ TOOL_REGISTRY = {
     "echo": echo,
     "read_repo_file": read_repo_file,
     "list_available_datasets": list_available_datasets,
+    "list_available_boards": list_available_boards,
     "describe_dataset": describe_dataset,
     "inspect_dataset": inspect_dataset,
     "recommend_search_plan": recommend_search_plan,
