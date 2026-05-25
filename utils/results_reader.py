@@ -67,7 +67,8 @@ def _read_global_search(root: Path, *, top_n: int) -> Optional[Dict[str, Any]]:
     df = pd.read_csv(csv_path)
     df = df.replace({float("nan"): None})
     objective_cols = [c for c in df.columns if c in {
-        "performance_metric", "bops", "avg_resource", "clock_cycles"
+        "performance_metric", "bops", "avg_resource", "clock_cycles",
+        "lut_pct", "ff_pct", "bram_pct", "dsp_pct",
     }]
     rows = df.to_dict(orient="records")
     for row in rows:

@@ -496,7 +496,7 @@ class GlobalSearchTF:
 
                 if use_hardware_metrics:
                     flat_model = _flatten_keras_model(model.model)
-                    avg_resource, clock_cycles = self.calculate_hardware_metrics(flat_model, input_shape)
+                    avg_resource, clock_cycles, lut_pct, ff_pct, bram_pct, dsp_pct = self.calculate_hardware_metrics(flat_model, input_shape)
 
                 model_details = {
                     'metadata': {'trial_id': trial.number, 'global_search_accuracy': float(performance_metric), 'global_search_bops': float(bops)},
@@ -528,6 +528,10 @@ class GlobalSearchTF:
                 if use_hardware_metrics:
                     result_data['avg_resource'] = avg_resource
                     result_data['clock_cycles'] = clock_cycles
+                    result_data['lut_pct'] = lut_pct
+                    result_data['ff_pct'] = ff_pct
+                    result_data['bram_pct'] = bram_pct
+                    result_data['dsp_pct'] = dsp_pct
                 self.results.append(result_data)
                 # Write trial to CSV immediately
                 self._append_trial_to_csv(result_data)
@@ -686,9 +690,9 @@ class GlobalSearchTF:
             # --- END REPLACEMENT ---
 
             if use_hardware_metrics:
-                avg_resource, clock_cycles = self.calculate_hardware_metrics(model, input_size)
+                avg_resource, clock_cycles, lut_pct, ff_pct, bram_pct, dsp_pct = self.calculate_hardware_metrics(model, input_size)
             else:
-                avg_resource, clock_cycles = 0.0, 0.0
+                avg_resource, clock_cycles, lut_pct, ff_pct, bram_pct, dsp_pct = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
 
             if verbose:
                 print(f"Trial {trial.number}: Accuracy={performance_metric:.4f}, BOPs={bops}")
@@ -703,6 +707,10 @@ class GlobalSearchTF:
             if use_hardware_metrics:
                 result_data["avg_resource"] = avg_resource
                 result_data["clock_cycles"] = clock_cycles
+                result_data["lut_pct"] = lut_pct
+                result_data["ff_pct"] = ff_pct
+                result_data["bram_pct"] = bram_pct
+                result_data["dsp_pct"] = dsp_pct
             self.results.append(result_data)
             # Write trial to CSV immediately
             self._append_trial_to_csv(result_data)
@@ -721,7 +729,7 @@ class GlobalSearchTF:
             input_shape: The input dimension for the model, required for patching.
             
         Returns:
-            tuple: (avg_resource, clock_cycles)
+            tuple: (avg_resource, clock_cycles, lut_pct, ff_pct, bram_pct, dsp_pct)
         """
         # try:
         #     from rule4ml.models.estimators import MultiModelEstimator
@@ -776,10 +784,11 @@ class GlobalSearchTF:
                 clock_cycles = results.get('CYCLES', results.get('Cycles', 1e9))
             else:
                 print("Warning: Hardware estimation failed to return results. Returning high-penalty default values.")
+                lut = ff = bram = dsp = 100.0
                 avg_resource = 100.0
                 clock_cycles = 1e9
 
-            return avg_resource, clock_cycles
+            return avg_resource, clock_cycles, lut, ff, bram, dsp
             
         except ImportError:
             # Re-raise to ensure the user knows rule4ml is missing
@@ -902,7 +911,7 @@ class GlobalSearchTF:
             # Create empty DataFrame with expected columns to write headers only
             columns = ['trial', 'performance_metric', 'bops', 'params', 'yaml_path']
             if use_hardware_metrics:
-                columns.extend(['avg_resource', 'clock_cycles'])
+                columns.extend(['avg_resource', 'clock_cycles', 'lut_pct', 'ff_pct', 'bram_pct', 'dsp_pct'])
             columns.append('run_timestamp')
             df_headers = pd.DataFrame(columns=columns)
             df_headers.to_csv(self.csv_file_path, index=False)
