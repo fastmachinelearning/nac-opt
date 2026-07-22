@@ -45,9 +45,15 @@ def load_and_preprocess_qubit(
     x_test_full = np.load(x_test_path)
     y_test_full = np.load(y_test_path)
 
-    end_window = start_location + window_size
-    x_train_full = x_train_full[:, start_location * 2 : end_window * 2]
-    x_test_full = x_test_full[:, start_location * 2 : end_window * 2]
+    # Windowing in "ADC clock cycles". Raw arrays store I and Q interleaved/concatenated,
+    # so slice indices are multiplied by 2.
+    #
+    # If window_size is None, return the full trace (no windowing) so callers can
+    # slice dynamically (e.g., per Optuna trial).
+    if window_size is not None:
+        end_window = start_location + int(window_size)
+        x_train_full = x_train_full[:, int(start_location) * 2 : end_window * 2]
+        x_test_full = x_test_full[:, int(start_location) * 2 : end_window * 2]
 
     x_train_full = x_train_full.astype(np.float32)
     x_test_full = x_test_full.astype(np.float32)

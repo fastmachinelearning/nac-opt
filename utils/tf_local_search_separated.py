@@ -9,15 +9,21 @@ import tensorflow_model_optimization as tfmot
 from qkeras import QDense, QActivation, QConv2D, quantizers
 
 # --- Self-Contained Helper Functions (unchanged, without debug prints) ---
-def get_activation_tf(act_name: str) -> tf.keras.layers.Layer:
+def get_activation_tf(act_name):
     """
-    More robustly gets a Keras activation layer from a string name.
+    Map an activation name from YAML to a Keras layer.
+
+    ``None`` / ``null`` in the architecture YAML means no activation on that
+    layer (linear); callers like ``build_mlp_from_config_classifier`` skip Nones.
     """
+    if act_name is None:
+        return None
     act_map = {
-        "ReLU": tf.keras.layers.ReLU(), 
-        "LeakyReLU": tf.keras.layers.LeakyReLU(alpha=0.01), 
-        "GELU": tf.keras.layers.Activation('gelu'), 
-        "Identity": tf.keras.layers.Activation('linear')
+        "ReLU": tf.keras.layers.ReLU(),
+        "LeakyReLU": tf.keras.layers.LeakyReLU(alpha=0.01),
+        "GELU": tf.keras.layers.Activation("gelu"),
+        "Identity": tf.keras.layers.Activation("linear"),
+        "linear": tf.keras.layers.Activation("linear"),
     }
     # First, try a direct match (case-sensitive)
     if act_name in act_map:
@@ -87,6 +93,42 @@ def load_model_from_yaml(yaml_path: str) -> tf.keras.Model:
     model_wrapper = BlockArchitectureTF(blocks=feature_extractor_blocks, mlp=classifier_head, input_shape=input_shape, needs_flattening=(not is_flattened))
     return model_wrapper.final_model
 
+
+def loss_and_compile_metrics_from_arch_yaml(architecture_yaml_path):
+    """
+    If the BlockBased YAML describes a binary 1-output head, return
+    ``(BinaryCrossentropy, [BinaryAccuracy])`` aligned with the final activation
+    (logit vs sigmoid). Otherwise return ``(None, None)`` for callers to fall
+    back to categorical / sparse-categorical training.
+    """
+    with open(architecture_yaml_path, "r") as f:
+        cfg = yaml.safe_load(f) or {}
+    arch = cfg.get("architecture") or {}
+    if int(arch.get("output_dim", 2)) != 1:
+        return None, None
+    head = next((c for c in arch.get("components", []) if c.get("name") == "classifier_head"), None)
+    if not head:
+        return None, None
+    acts = (head.get("params") or {}).get("activations") or []
+    final_act = acts[-1] if acts else None
+    if final_act is None:
+        la = ""
+    else:
+        la = str(final_act).strip().lower()
+    if la in ("", "none", "null", "linear", "identity"):
+        from_logits = True
+        threshold = 0.0
+    elif la == "sigmoid":
+        from_logits = False
+        threshold = 0.5
+    else:
+        from_logits = False
+        threshold = 0.5
+    loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=from_logits)
+    metrics = [tf.keras.metrics.BinaryAccuracy(name="accuracy", threshold=threshold)]
+    return loss_fn, metrics
+
+
 def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) -> tf.keras.Model:
     weight_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
     bias_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
@@ -135,9 +177,10 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
 
 # --- NEW: Independent Local Search Functions ---
 
-def run_pruning_only_loop(base_model, dataset, config, results_dir, loss_function):
+def run_pruning_only_loop(base_model, dataset, config, results_dir, loss_function, compile_metrics=None):
     """Performs iterative magnitude pruning on a full-precision Keras model."""
     print("\n" + "-"*20 + " Starting Pruning-Only Experiment " + "-"*20)
+    _metrics = compile_metrics if compile_metrics is not None else ["accuracy"]
     x_train, y_train, x_val, y_val = dataset
     pruning_config = config['pruning_settings']
     
@@ -154,13 +197,13 @@ def run_pruning_only_loop(base_model, dataset, config, results_dir, loss_functio
 
         pruning_params = {'pruning_schedule': tfmot.sparsity.keras.ConstantSparsity(target_sparsity, 0, 100)}
         pruned_model = tfmot.sparsity.keras.prune_low_magnitude(model_to_prune, **pruning_params)
-        pruned_model.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
+        pruned_model.compile(optimizer='adam', loss=loss_function, metrics=_metrics)
         
         pruned_model.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=pruning_config['epochs_per_iteration'], 
                          batch_size=128, callbacks=[tfmot.sparsity.keras.UpdatePruningStep()], verbose=1)
         
         model_stripped = tfmot.sparsity.keras.strip_pruning(pruned_model)
-        model_stripped.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
+        model_stripped.compile(optimizer='adam', loss=loss_function, metrics=_metrics)
         _, val_acc = model_stripped.evaluate(x_val, y_val, verbose=0)
         print(f"  -> Accuracy for sparsity {target_sparsity:.4f}: {val_acc:.4f}")
         with open(log_filename, "a") as f: f.write(f"{i+1},{target_sparsity:.4f},{val_acc:.4f}\n")
@@ -170,9 +213,10 @@ def run_pruning_only_loop(base_model, dataset, config, results_dir, loss_functio
         
     return pd.read_csv(log_filename)
 
-def run_qat_only_loop(base_model, dataset, config, results_dir, loss_function):
+def run_qat_only_loop(base_model, dataset, config, results_dir, loss_function, compile_metrics=None):
     """Performs QAT fine-tuning for various precisions on a non-pruned QKeras model."""
     print("\n" + "-"*20 + " Starting QAT-Only Experiment " + "-"*20)
+    _metrics = compile_metrics if compile_metrics is not None else ["accuracy"]
     x_train, y_train, x_val, y_val = dataset
     qat_config = config['qat_settings']
 
@@ -188,7 +232,7 @@ def run_qat_only_loop(base_model, dataset, config, results_dir, loss_function):
         # Example with the Adam optimizer
         # qat_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5, clipnorm=1.0)
         qat_optimizer = tf.keras.optimizers.Adam(learning_rate=5e-5)
-        qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=['accuracy'])
+        qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=_metrics)
 
 
         print(f"--> Fine-tuning QAT model for {qat_config['epochs']} epochs...")
@@ -211,7 +255,17 @@ def local_search_entrypoint(architecture_yaml_path, local_search_config_path, da
     with open(local_search_config_path, 'r') as f: config = yaml.safe_load(f)
     
     x_train, y_train, x_val, y_val = dataset
-    loss_function = 'categorical_crossentropy' if len(y_train.shape) > 1 and y_train.shape[1] > 1 else 'sparse_categorical_crossentropy'
+    loss_fn, comp_metrics = loss_and_compile_metrics_from_arch_yaml(architecture_yaml_path)
+    if loss_fn is not None:
+        loss_function = loss_fn
+        compile_metrics = comp_metrics
+    else:
+        loss_function = (
+            "categorical_crossentropy"
+            if len(y_train.shape) > 1 and y_train.shape[1] > 1
+            else "sparse_categorical_crossentropy"
+        )
+        compile_metrics = None
 
     base_model = load_model_from_yaml(architecture_yaml_path)
     
@@ -219,12 +273,16 @@ def local_search_entrypoint(architecture_yaml_path, local_search_config_path, da
     if run_pruning:
         if 'pruning_settings' in config:
             # Run Experiment 1: Pruning
-            pruning_df = run_pruning_only_loop(base_model, dataset, config, results_dir, loss_function)
+            pruning_df = run_pruning_only_loop(
+                base_model, dataset, config, results_dir, loss_function, compile_metrics
+            )
         else:
             print("Warning: 'run_pruning' is True, but 'pruning_settings' not found in config. Skipping pruning.")
     
     # Run Experiment 2: QAT
-    qat_df = run_qat_only_loop(base_model, dataset, config, results_dir, loss_function)
+    qat_df = run_qat_only_loop(
+        base_model, dataset, config, results_dir, loss_function, compile_metrics
+    )
     
     print("\n" + "="*50 + "\n SEPARATED LOCAL SEARCH COMPLETE \n" + "="*50)
     return pruning_df, qat_df

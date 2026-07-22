@@ -138,12 +138,20 @@ with open(LOCAL_CONFIG_PATH, "w") as f:
 
 x_train, y_train, x_test, y_test = load_and_preprocess_qubit(
     data_dir=data_dir,
-    start_location=ds_cfg["start_location"],
-    window_size=ds_cfg["window_size"],
+    start_location=(
+        (yaml.safe_load(open(ARCH_YAML_PATH)) or {}).get("metadata", {}).get("dataset_window", {}).get("start_location", ds_cfg["start_location"])
+        if os.path.exists(ARCH_YAML_PATH)
+        else ds_cfg["start_location"]
+    ),
+    window_size=(
+        (yaml.safe_load(open(ARCH_YAML_PATH)) or {}).get("metadata", {}).get("dataset_window", {}).get("window_size", ds_cfg["window_size"])
+        if os.path.exists(ARCH_YAML_PATH)
+        else ds_cfg["window_size"]
+    ),
     subset_size=ds_cfg.get("subset_size"),
     normalize=ds_cfg["normalize"],
     flatten=ds_cfg["flatten"],
-    one_hot=True,
+    one_hot=ds_cfg.get("one_hot", True),
     num_classes=ds_cfg["num_classes"],
 )
 

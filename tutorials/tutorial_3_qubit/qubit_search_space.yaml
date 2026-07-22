@@ -1,7 +1,19 @@
-mlp_width_space: [16, 32, 64, 128]
-act_space: ["ReLU", "LeakyReLU"]
+mlp_width_space: [2, 4]
+act_space: ["ReLU", "LeakyReLU", null]
 norm_space: ["batch", null]
-block_types: ["MLP", "None"]
-num_blocks: 3
-output_dim: 2
-output_activation: "softmax"
+
+# Force baseline-or-smaller architecture:
+# - No feature-extractor blocks (only the classifier head)
+# - Classifier head depth fixed to 2 layers: e.g. Dense(4)->Dense(1) binary logit head
+# Binary readout (hls4ml-friendly): single logit + BinaryCrossentropy(from_logits=True).
+# Use output_activation: "sigmoid" if you want train-time sigmoid (still 1 output).
+block_types: ["None"]
+num_blocks: 1
+mlp_head_num_layers: 2
+output_dim: 1
+output_activation: null
+
+# Qubit window search: sample a valid (start_location, window_size) per trial.
+# Validity constraint enforced in the objective: start_location + window_size <= trace_len_cycles.
+window_size_space: [25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400]
+start_location_space: [0, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400, 425, 450, 475, 500, 525, 550, 575, 600, 625, 650, 675, 700, 725]

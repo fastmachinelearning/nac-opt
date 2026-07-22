@@ -1,0 +1,1118 @@
+\documentclass[11pt]{article}
+
+% This file will be kept up-to-date at the following GitHub repository:
+%
+% https://github.com/automl-conf/LatexTemplate
+%
+% Please file any issues/bug reports, etc. you may have at:
+%
+% https://github.com/automl-conf/LatexTemplate/issues
+
+\usepackage{microtype} % microtypography
+\usepackage{booktabs}  % tables
+\usepackage{url}  % urls
+\usepackage{csquotes}
+
+% AMS math
+\usepackage{amsmath}
+\usepackage{amsthm}
+
+
+\usepackage{graphicx} % added
+
+
+% With no package options, the submission will be anonymized, the supplemental
+% material will be visible, and line numbers will be added to the manuscript.
+%
+% To compile a non-anonymized camera-ready version, add the [final] option:
+%
+% \usepackage[final]{automl}
+%
+% To compile for the non-archival content track, add the [shortpaper] option:
+%
+% \usepackage[shortpaper]{automl}
+% \usepackage[final,shortpaper]{automl}
+%
+% To compile a single-blind submission, e.g. for the ABCD track, add the
+% [revealauthors] option:
+%
+% \usepackage[revealauthors]{automl}
+%
+% To compile a non-anonymized pre-print version that can be uploaded to arXiv,
+% add the [preprint] option:
+%
+% \usepackage[preprint]{automl}
+%
+% The [hidesupplement] option may be used to hide the supplementary material from any of the
+% above commands, e.g.:
+%
+% \usepackage[hidesupplement,final,shortpaper]{automl}
+
+\usepackage[final]{automl}
+
+% You may use any reference style as long as you are consistent throughout the
+% document. As a default, we suggest author--year citations; for bibtex and
+% natbib you may use:
+
+\usepackage{natbib}
+\bibliographystyle{apalike}
+
+% and for biber and biblatex you may use:
+
+% \usepackage[%
+%   backend=biber,
+%   style=authoryear-comp,
+%   sortcites=true,
+%   natbib=true,
+%   giveninits=true,
+%   maxcitenames=2,
+%   doi=false,
+%   url=true,
+%   isbn=false,
+%   dashed=false
+% ]{biblatex}
+% \addbibresource{example.bib}
+
+% example bibliography file
+\usepackage{filecontents}
+\begin{filecontents}{example.bib}
+@book{example_book,
+  author    = {Author, Anonymous},
+  year      = {2000},
+  title     = {The Definitive Resource},
+  publisher = {Universal Press}
+}
+\end{filecontents}
+
+\title{Surrogate Neural Architecture Codesign Package (SNAC-Pack)}
+
+% The syntax for adding an author is
+%
+% \author[i]{\nameemail{author name}{author email}}
+%
+% where i is an affiliation counter. Authors may have
+% multiple affiliations; e.g.:
+%
+% \author[1,2]{\nameemail{Anonymous}{anonymous@example.com}}
+%
+% the list might continue:
+% \author[2,3]{\nameemail{Author 2}{email2@example.com}}
+% \author[3]{\nameemail{Author 3}{email3@example.com}}
+%
+% if you need to force a linebreak in the author list, prepend an \author entry
+% with \\:
+%
+% \author[1,2,3]{\\\nameemail{Author 4}{email4@example.com}}
+%
+% Specify corresponding affiliations after authors, referring to counter used in
+% \author:
+%
+% \affil[1]{Institution 1}
+%
+% the list might continue:
+% \affil[2]{Institution 2}
+% \affil[3]{Institution 3}
+%
+% this system may also be used to add additional footnotes, e.g. to indicate
+% equal contributions. Here is an example:
+%
+% \author[1,$\ast$]{\nameemail{Author 1}{email1@example.com}}
+% \author[1,$\ast$]{\nameemail{Author 2}{email2@example.com}}
+% \author[2]{\nameemail{Author 3}{email3@example.com}}
+%
+
+\author[1]{\nameemail{Jason Weitz}{jdweitz@ucsd.edu}}
+\author[2,1]{\nameemail{Dmitri Demler}{ddemler@ethz.ch}}
+\author[3]{\nameemail{Benjamin Hawks}{bhawks@fnal.gov}}
+\author[4]{\nameemail{Aaron Wang}{aaronw5@uic.edu}}
+\author[3]{\nameemail{Nhan Tran}{ntran@fnal.gov}}
+\author[1]{\nameemail{Javier Duarte}{jduarte@ucsd.edu}}
+
+% \author{%
+%   Jason Weitz\\
+%   University of California San Diego\\
+%   La Jolla, CA 92093, USA \\
+%   \texttt{jdweitz@ucsd.edu} \\
+%   \And
+%   Dmitri Demler \\
+%   University of California San Diego\\
+%   La Jolla, CA 92093, USA\\
+%   \texttt{ddemler@ucsd.edu} \\
+%   \AND
+%   Benjamin Hawks \\
+%   Fermi National Accelerator Laboratory \\
+%   Batavia, IL 60510, USA \\
+%   \texttt{bhawks@fnal.gov} \\
+%   \And
+%   Nhan Tran \\
+%   Fermi National Accelerator Laboratory \\
+%   Batavia, IL 60510, USA \\
+%   \texttt{ntran@fnal.gov} \\
+%   \And
+%   Javier Duarte \\
+%   University of California San Diego\\
+%   La Jolla, CA 92093, USA \\
+%   \texttt{jduarte@ucsd.edu} \\
+% }
+
+\affil[1]{University of California San Diego}
+\affil[2]{ETH Zurich}
+\affil[3]{Fermi National Accelerator Laboratory }
+\affil[4]{University of Illinois Chicago}
+% \affil[4]{Institution 4}
+
+% define PDF metadata, aids in accessibility of the resulting PDF
+\hypersetup{%
+  pdfauthor={AutoML}, % will be reset to "Anonymous" unless the "final" package option is given
+  pdftitle={Documentation for the automl Package},
+  pdfsubject={Documentation for automl Package},
+  pdfkeywords={AutoML, LaTeX, style}
+}
+
+\begin{document}
+
+\maketitle
+
+% \begin{abstract}
+
+%   Neural Architecture Search is a powerful approach for automating model design, but existing methods struggle to accurately optimize for real hardware performance, often relying on proxy metrics such as bit operations.
+% We present Surrogate Neural Architecture Codesign Package (SNAC-Pack), an integrated framework that automates the discovery and optimization of neural networks focusing on FPGA deployment.
+% SNAC-Pack combines Neural Architecture Codesign's multi-stage search capabilities with the Resource Utilization and Latency Estimator, enabling multi-objective optimization across accuracy, FPGA resource utilization, and latency without requiring time-intensive synthesis for each candidate model. 
+% We demonstrate SNAC-Pack on a high energy physics jet classification task, achieving 63.84\% accuracy with resource estimation.
+% When synthesized on a Xilinx Virtex UltraScale+ VU13P FPGA, the SNAC-Pack model matches baseline accuracy while maintaining comparable resource utilization to models optimized using traditional BOPs metrics.
+% This work demonstrates the potential of hardware-aware neural architecture search for resource-constrained deployments and provides an open-source framework for automating the design of efficient FPGA-accelerated models.
+
+% \end{abstract}
+\begin{abstract}
+Neural Architecture Search (NAS) is a powerful approach for automating model design, but existing methods often optimize for accuracy alone or rely on proxy metrics such as bit operations (BOPs) that correlate poorly with hardware cost.
+This gap is particularly large for FPGA deployment, where cost is dominated by a multi-dimensional budget of lookup tables, DSPs, flip-flops, BRAM, and latency.
+We present the Surrogate Neural Architecture Codesign Package (SNAC-Pack), an open-source AutoML framework for hardware-aware neural architecture codesign and end-to-end FPGA deployment.
+SNAC-Pack runs multi-objective global search with Optuna and NSGA-II, loading trials to a shared SQLite store that enables parallel workers across compute nodes.
+A hardware surrogate model outputs per-trial resource and latency estimates, avoiding the synthesis cost that would otherwise dominate the search loop.
+A local search stage then applies quantization-aware training (QAT) together with iterative magnitude pruning in a combined compression loop, after which the final model is synthesized to FPGA firmware via hls4ml.
+A YAML configuration and an optional agentic frontend let users run the pipeline on new datasets without modifying the framework.
+We demonstrate SNAC-Pack on jet classification at the Large Hadron Collider and superconducting qubit readout, discovering compact architectures that match or exceed baseline accuracy while reducing post-synthesis FPGA resource utilization.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Machine learning models now achieve state-of-the-art performance across many domains, but deploying them in resource-constrained environments such as edge devices, embedded accelerators, and low-latency triggers remains a substantial engineering challenge.
+FPGAs are a natural target in such settings because they offer microsecond-scale inference and reconfigurable parallelism, but they impose a multi-dimensional resource budget spanning lookup tables (LUTs), digital signal processors (DSPs), block RAM (BRAM), flip-flops (FFs), and clock cycles, all of which depend on model architecture, quantization, and pruning.
+Neural Architecture Search (NAS) automates model design and can in principle navigate these trade-offs, but most existing methods either optimize for accuracy alone or rely on software-level proxies such as bit operations (BOPs) and floating-point operations (FLOPs) that correlate only loosely with post-synthesis hardware cost.
+Closing the gap between the metrics optimized during search and the metrics that dictate deployment requires fast, accurate hardware feedback inside the search loop and a workflow that connects search to physical synthesis end-to-end.
+
+We introduce the Surrogate Neural Architecture Codesign Package (SNAC-Pack), an open-source automated machine learning (AutoML) framework for hardware-aware neural architecture codesign with end-to-end FPGA deployment.
+SNAC-Pack runs multi-objective global search with Optuna~\citep{optuna_2019} and an NSGA-II~\citep{NSGA} search algorithm, where each trial samples an architecture, predicts its FPGA resource utilization and latency with a learned surrogate~\citep{Rahimifar_2025}, and trains the model to obtain accuracy.
+To enable practical search at scale, all trials are written to a shared SQLite store, allowing workers on independent compute nodes to execute trials in parallel against a common Pareto archive.
+A selected optimal candidate then enters a local search stage that applies quantization-aware training together with iterative magnitude pruning~\citep{quantization_survey,modelcompression}, after which the final model is synthesized to FPGA firmware via hls4ml~\citep{hls4ml,fastml_hls4ml}.
+Users drive the full pipeline through a YAML configuration that specifies the dataset, search space, optimization objectives, and target hardware; an optional agentic frontend based on the Model Context Protocol allows for the same configuration options using natural-language with an MCP agent for non-expert users.
+
+
+We demonstrate SNAC-Pack on two scientific machine learning tasks with different deployment profiles: jet classification at the Large Hadron Collider~\citep{pierini_2020_3602260}, where sub-microsecond inference is required at the trigger level, and superconducting qubit readout~\citep{diguglielmo2025endtoendworkflowmachinelearningbased}, where readout fidelity must be balanced against strict hardware budgets.
+In both cases, SNAC-Pack finds compact architectures that match or exceed baseline accuracy while reducing post-synthesis FPGA resource utilization.
+SNAC-Pack is open-source and publicly available at \url{https://github.com/fastmachinelearning/nac-opt}.
+
+% , and we compare directly against an otherwise-identical pipeline using BOPs as the efficiency objective to isolate the contribution of hardware-aware surrogate feedback. 
+
+
+
+% Machine learning models are applied across diverse domains, achieving state-of-the-art performance.
+% Yet, deploying these models in resource-constrained environments, such as edge devices, is challenging due to strict hardware and latency requirements.
+% In order to meet these constraints, researchers have developed methods such as automated architecture design and model compression.
+% Neural Architecture Search (NAS) can automate model design, but existing approaches typically optimize for accuracy alone or use simplistic computational metrics like bit operations (BOPs) that approximate actual hardware performance. 
+
+% To address this challenge, we introduce Surrogate Neural Architecture Codesign Package (SNAC-Pack), an integrated software framework that automates the discovery and optimization of neural network architectures specifically tailored for hardware deployment.
+% SNAC-Pack combines two tools: Neural Architecture Codesign~\cite{Weitz_2025}, which performs a multi-stage neural architecture search to discover optimal models, and the Resource Utilization and Latency Estimator~\cite{Rahimifar_2025}, which uses a surrogate model to predict how an architecture will perform when synthesized for implementation on an FPGA.
+
+% By integrating a fast and accurate surrogate model for resource estimation directly into the search stage, SNAC-Pack can perform a more effective multi-objective optimization for accuracy, hardware resource usage, and latency while avoiding time-intensive full hardware synthesis for every candidate model.
+% This work explores the use of SNAC-Pack on a jet classification task~\cite{pierini_2020_3602260}, from a search space to a synthesized model. SNAC-Pack is open-source and publicly available \href{https://github.com/fastmachinelearning/nac-opt.git}{here}.
+
+\begin{figure}
+    \centering
+    \includegraphics[width=0.95\linewidth]{figures/snac_figure_try5.pdf}
+    \caption{End-to-end SNAC-Pack pipeline.
+    The user configures the run via a YAML file or an optional MCP agent interface.
+    The Surrogate Codesign Hub runs multi-objective global search, where each trial samples an architecture, predicts FPGA resources and latency with a learned surrogate, evaluates accuracy, and updates the Pareto front.
+    A selected candidate undergoes local search (quantization-aware training with iterative magnitude pruning in a combined loop) before synthesis to FPGA firmware with hls4ml.}
+    \label{fig:pipeline_fig}
+\end{figure}
+
+% \begin{itemize}
+
+%     \item Modern neural networks are often too computationally expensive for real-time and resource-constrained deployment settings such as FPGA inference.
+
+%     \item Most AutoML frameworks primarily optimize for accuracy, while practical deployment also depends on latency, DSP usage, BRAM usage, and power constraints.
+
+%     \item We present SNAC-Pack (Surrogate Neural Architecture Codesign Package), an open-source framework for jointly optimizing model accuracy and hardware metrics.
+
+%     \item SNAC-Pack combines neural architecture search, quantization, pruning, and hardware-aware optimization in a unified pipeline.
+
+%     \item We evaluate the framework on real scientific ML applications including jet classification for high-energy physics and qubit readout classification.
+
+%     \item Our results show that deployment-aware objectives and surrogate hardware models are important for practical auto machine learning (AutoML) workflows.
+
+% \end{itemize}
+
+\section{Related Work}
+\label{sec:related}
+
+% Neural Architecture Search (NAS)~\cite{9508774,zoph2016neural} is an automated process that explores a search space of model architectures with a search strategy based on a set of evaluation objectives, such as accuracy. 
+% Neural Architecture Codesign (NAC)~\cite{Weitz_2025} is a multi-stage NAS, consisting of a global and local search. The global search explores a wide range of architectures, resulting in a Pareto front of well-performing models. Selecting an architecture along this front, local search performs model compression, including quantization-aware-training (QAT)~\cite{quantization_survey} and pruning~\cite{modelcompression}. With this further refinement, the model is then synthesized with hls4ml~\cite{hls4ml,fastml_hls4ml}.
+
+% Separately, surrogate models~\cite{10.1145/3489517.3530408,10.1145/3240765.3264635} have been developed to accelerate the design cycle by providing rapid feedback on hardware performance without time-consuming synthesis runs. The rule4ml library~\cite{Rahimifar_2025}, for instance, introduces a method to accurately predict the resource utilization, including block ram (BRAM), digital signal processors (DSPs), flip flops (FFs), lookup tables (LUTs), initiation interval (II), and latency of a neural network on an FPGA.
+
+SNAC-Pack draws on three threads of prior work: neural architecture search, surrogate models for hardware estimation, and AutoML
+frameworks.
+It builds on Neural ArchitectureCodesign (NAC)~\citep{Weitz_2025}, a multi-stage NAS in which a global search produces a Pareto front of candidate architectures and a local search refines selected models through quantization-aware training~\citep{quantization_survey} and pruning~\citep{modelcompression} before synthesis with hls4ml~\citep{hls4ml,fastml_hls4ml,10.1145/3801979}.
+Its efficiency objective is BOPs, a software proxy that only loosely tracks FPGA cost.
+SNAC-Pack closes this gap by combining rule4ml~\citep{Rahimifar_2025}, a learned surrogate for FPGA resource utilization and latency, directly into the search loop.
+The remainder of this section splits these components within the broader literature: NAS and its multi-objective extensions, hardware-aware NAS, surrogate models for hardware estimation, and AutoML frameworks targeting deployment.
+
+\subsection{Neural Architecture Search}
+% brief history, search strategies (RL, evolutionary, gradient/DARTS, one-shot), and multi-objective NAS. This is where you cite the broader landscape rather than just two papers. Key works to add: DARTS, ENAS, NSGA-Net
+Neural Architecture Search (NAS) automates the design of neural networks by exploring a space of candidate architectures under a chosen search strategy.
+\citet{zoph2016neural} established the modern formulation, training a reinforcement learning controller to produce architectures scored by validation accuracy but at a cost of thousands of GPU-days per search.
+Subsequent work reduced this cost dramatically through weight sharing~\citep{pham2018efficient} and continuous relaxation of the search space~\citep{liu2018darts}, but both introduce constraints that complicate hardware-aware deployment: shared-weight rankings can be biased, and gradient-based formulations do not naturally accommodate non-differentiable objectives such as FPGA resource utilization.
+
+Another work reframed NAS as an inherently multi-objective problem.
+The survey by \citet{9508774} catalogs the broad use of evolutionary computation for NAS, where populations of architectures are evolved via mutation and crossover and ranked across multiple objectives simultaneously.
+\citet{lu2019nsga} applied NSGA-II~\citep{NSGA} to jointly optimize classification error and computational complexity, producing Pareto fronts of architectures rather than single solutions.
+\citet{elsken2018efficient} similarly optimized for accuracy and resource cost, using network morphism to inherit weights across generations and offset training cost.
+\citet{sinha2024multi} extend NSGA-II with zero-cost proxies and
+explicit diversity preservation to broaden the resulting Pareto
+fronts.
+
+A common limitation across these multi-objective methods is the choice of efficiency metric.
+FLOPs, parameter counts, and BOPs are attractive because they are cheap to compute, but they do not reliably reflect the the metrics that govern real deployment on reconfigurable hardware: LUTs, DSPs, BRAM, FFs, and clock cycles.
+Closing this gap motivates hardware-awareness.
+
+
+\subsection{Hardware-Aware NAS}
+% this is your closest related work and currently missing entirely. Cover MnasNet, ProxylessNAS, FBNet, Once-For-All (which NAC was already inspired by), HAT (hardware-aware transformers), APQ (joint architecture-pruning-quantization). Then explain how SNAC-Pack differs: most of these target mobile GPUs/edge accelerators with relatively coarse latency LUTs, while you target FPGAs which have a much higher-dimensional resource space (LUT/FF/DSP/BRAM) and are reconfigurable.
+Hardware-aware NAS emerged in response to the observation that proxy metrics correlate poorly with real deployment cost.
+\citet{tan2019mnasnet} measured inference latency directly on mobile devices and incorporated it into the search reward, demonstrating that FLOPs alone routinely mispredict runtime.
+To avoid the cost of per-trial on-device measurement, \citet{wu2019fbnet} precomputed a latency lookup table over operators and treated their contributions as additive within a differentiable search.
+\citet{cai2018proxylessnas} learned a latency prediction model, enabling search to run directly on the target task and hardware without intermediate proxy datasets.
+
+Subsequent work expanded the scope of hardware-aware search.
+\citet{cai2019once} decoupled training from architecture selection: a single supernet is trained once, after which evolutionary search over fast accuracy and latency predictors yields sub-networks for arbitrary hardware targets. \citet{wang2020apq} jointly searched over architecture, pruning ratios, and mixed-precision quantization policies, showing that optimizing these axes sequentially leaves substantial efficiency unrealized.
+\citet{benmeziane2023multi} further refined this approach by training surrogates with rank-preserving losses tuned to the Pareto front rather  than to absolute prediction error.
+
+These methods overwhelmingly target mobile CPUs, GPUs, and edge accelerators, where latency is the dominant cost and can be modeled as an approximately additive scalar.
+FPGAs differ in kind: deployment is bound by a multi-dimensional budget of LUTs, DSPs, BRAM, and FFs, with nontrivial interactions between quantization, pruning, and resource allocation.
+\citet{jiang2019accuracy} proposed one of the earliest FPGA-aware NAS frameworks, bounding latency through an analytical abstraction over loop-unrolling and pipelining; \citet{li2021hw} later released a benchmark of FPGA and edge-device costs over standard NAS search spaces.
+Both lower the barrier to FPGA-aware research but rely on static or analytical models; closing the loop on dynamic search over arbitrary architectures motivates surrogate-based approaches.
+
+\subsection{Surrogate Models for Hardware Estimation}
+% expand beyond just rule4ml. Cite nn-Meter, BRP-NAS, HW-NAS-Bench, and the FPGA-specific surrogate work (wa-hls4ml from Hawks et al., which you already mention in the conclusion—pull it up here too). Explain the tradeoff: synthesis is ground truth but takes hours per model; surrogates are seconds but introduce error. SNAC-Pack uses the latter inside the search loop and the former for final validation.
+The hardware-aware methods above all rely on a model mapping each candidate architecture to its deployment cost.
+When that cost comes from full synthesis or on-device profiling, every evaluation takes minutes to hours, making it intractable inside a search loop over thousands of candidates.
+Surrogate models replace this expensive ground truth with a fast learned predictor.
+For edge CPUs, GPUs, and mobile accelerators, \citet{zhang2021nn} showed that fusion-aware kernel-level prediction is necessary to model runtime behavior under graph optimization, and \citet{akhauri2024latency} subsequently studied the transferability of such predictors across devices.
+\citet{dudziak2020brp} brought the surrogate paradigm into NAS itself through a GNN trained on binary relations between architectures, improving sample efficiency when labeled data is scarce.
+
+These approaches treat deployment cost as an additive scalar, which breaks down on FPGAs where an architecture must simultaneously fit within budgets of LUTs, DSPs, FFs, and BRAM, and these resources interact non-trivially with quantization and pruning.
+Earlier FPGA-targeted predictors operated at the level of HLS code: \citet{10.1145/3240765.3264635} trained regression models on extracted code features to predict post-place-and-route performance without invoking HLS in the loop, and \citet{10.1145/3489517.3530408} extended this to a graph neural network predictor over a 40k-program benchmark of C/C++ kernels, outperforming HLS-based estimates on both resource and timing metrics.
+The rule4ml library~\citep{Rahimifar_2025} specializes this idea to neural networks by training per-resource regressors over a synthesized dataset of NN architectures, predicting LUT, DSP, FF, and BRAM utilization together with II and latency clock cycles before any HLS run.
+The wa-hls4ml benchmark and accompanying GNN and transformer-based surrogates~\citep{hawks2025wahls4mlbenchmarksurrogatemodels} extend this with predictors trained on over 680{,}000 hls4ml-synthesized networks spanning fully connected and convolutional architectures, providing a standardized evaluation suite. SNAC-Pack uses rule4ml with the wa-hls4ml GNN as a surrogate inside the search loop and reserves full hls4ml synthesis for final validation, treating the surrogate as a swappable component so future predictors can replace it without modifying the search interface.
+
+
+\subsection{AutoML Frameworks and Tooling}
+ % important for Track A specifically since they care about software systems. Cover Auto-Keras, Auto-PyTorch, AutoGluon, Optuna, NNI, and explain the gap: most of these don't have deployment backends, and the ones that do don't target reconfigurable hardware. This is where you motivate SNAC-Pack as a framework contribution, which matters for ABCD criteria. You can also briefly mention domain-specific AutoML for scientific ML (the A3D3 / Fast ML for Science ecosystem) since that's where your applications live.
+
+The AutoML landscape has evolved from algorithm selection over fixed feature pipelines to fully automated deep learning.
+Auto-sklearn~\citep{feurer2015efficient} established the early paradigm by combining Bayesian optimization with meta-learning warm-starts and post-hoc ensembling over the scikit-learn library, targeting classical CPU-bound classifiers.
+As deep learning matured, frameworks shifted toward joint architecture and hyperparameter search: AutoKeras~\citep{jin2023autokeras} encapsulated NAS and hyperparameter tuning behind a high-level Keras API to broaden accessibility, while
+Auto-PyTorch~\citep{zimmer2021auto} jointly optimized architectures
+and training schedules through multi-fidelity meta-learning for
+tabular AutoDL.
+To address the cost of search itself, FLAML~\citep{wang2021flaml} introduced budget-adaptive randomized search and search-space decomposition, prioritizing efficient model discovery rather than asymptotic accuracy.
+Optuna~\citep{optuna_2019} provides a flexible programmatic search interface with distributed execution that has become a common backbone for modern AutoML pipelines.
+
+These frameworks largely treat deployment as a downstream concern: their objectives are software-level metrics such as validation accuracy or GPU throughput, and their backends end at a trained-model artifact.
+AutoGluon-Multimodal~\citep{tang2024autogluon} extends this line to multimodal foundation models with metrics such as inference frames-per-second on high-end GPUs, but these signals do not translate to the physical-resource budgets that govern reconfigurable hardware.
+hls4ml~\citep{hls4ml,fastml_hls4ml,10.1145/3801979} closes part of this gap on the deployment side by translating quantized Keras and PyTorch models into HLS code for FPGA synthesis, but it is not itself a search system.
+SNAC-Pack uses Optuna as its search backbone, using its shared SQLite storage for distributed parallel global search across compute nodes, and natively integrates hls4ml as the deployment target so that hardware metrics enter the optimization loop rather than being evaluated post-hoc.
+
+Recent work has also begun closing the loop between user intent and AutoML execution.
+AutoMMLab~\citep{yang2025autommlab} introduces a request-to-model workflow in which natural-language instructions drive an LLM agent through dataset selection, hyperparameter optimization, and deployment for computer vision tasks.
+SNAC-Pack adopts a related agentic interface through a Model Context Protocol layer that exposes its YAML-driven configuration, search, and synthesis stages as callable tools, lowering the barrier for non-experts who wish to target FPGA deployment on a new dataset.
+ 
+
+% \begin{itemize}
+
+%     \item Existing AutoML methods such as neural architecture search and hyperparameter optimization mainly focus on improving model accuracy.
+
+%     \item Hardware-aware NAS methods incorporate metrics such as FLOPs or latency, but many do not directly consider realistic FPGA deployment constraints.
+
+%     \item Prior NAC work introduced the idea of neural architecture codesign, but focused less on modular workflows, scalable search, and application-driven evaluation.
+
+%     \item There is still a need for end-to-end AutoML systems that:
+
+%     \begin{itemize}
+
+%         \item combine architecture search with hardware estimation and deployment constraints
+
+%         \item are evaluated on real scientific and domain-specific applications
+
+%     \end{itemize}
+
+%     \item SNAC-Pack extends prior work with multi-objective optimization, surrogate-based hardware estimation, and practical deployment workflows.
+
+% \end{itemize}
+
+\section{Method}
+\label{sec:method}
+% SNAC-Pack builds on the two-stage global and local search workflow introduced in NAC~\citep{Weitz_2025}, where a global NAS stage generates Pareto-optimal candidate architectures and a local search stage refines selected models through pruning and quantization-aware training before FPGA synthesis with hls4ml.
+% This is extended by incorporating additional hardware-aware objectives estimated using rule4ml~\cite{Rahimifar_2025} with the wa-hls4ml surrogate estimator.
+% SNAC-Pack is designed as an end-to-end workflow for hardware-aware neural architecture search and deployment, where the primary user interaction is defining a YAML configuration describing the dataset, preprocessing pipeline, architecture search space, optimization objectives, hardware estimation settings, and deployment target.
+% The search space includes layer types, number of neurons, activations, quantization settings, pruning settings, and other model hyperparameters.
+
+% SNAC-Pack builds on the two-stage global and local search workflow introduced in NAC~\citep{Weitz_2025}, where a global NAS stage generates Pareto-optimal candidate architectures and a local search stage refines selected models through pruning and quantization-aware training before FPGA synthesis with hls4ml.
+% SNAC-Pack extends this workflow by incorporating hardware-aware surrogate objectives through rule4ml~\citep{rahimifar2025rule4ml} and the wa-hls4ml surrogate estimators~\citep{hawks2025wahls4mlbenchmarksurrogatemodels}, enabling deployment-oriented optimization directly during search.
+% The framework is designed as an end-to-end workflow for hardware-aware neural architecture search and FPGA deployment, where users configure datasets, search spaces, optimization objectives, hardware estimation settings, and deployment targets through a YAML interface.
+% The workflow is depicted in Fig.~\ref{fig:pipeline_fig} and Table~\ref{tab:workflow}.
+
+SNAC-Pack builds on the two-stage global and local search workflow introduced in NAC~\citep{Weitz_2025}: a global stage explores architectural hyperparameters under multi-objective feedback, and a local stage compresses a small set of selected candidates with quantization-aware training (QAT) and pruning before synthesis with hls4ml~\citep{hls4ml,fastml_hls4ml,10.1145/3801979}.
+SNAC-Pack extends NAC by implementing hardware surrogate objectives into the global loop (rule4ml~\citep{rahimifar2025rule4ml}; wa-hls4ml predictors~\citep{hawks2025wahls4mlbenchmarksurrogatemodels} are discussed further in \S\ref{sec:related}) so that trial scores reflect FPGA-oriented costs without invoking full synthesis for every candidate.
+The framework is designed as an end-to-end workflow for hardware-aware neural architecture search and FPGA deployment, where users configure datasets, search spaces, optimization objectives, hardware estimation settings, and deployment targets through a YAML interface.
+Dataset loaders and splits, Optuna study settings, rule4ml/hls4ml-related options, and local-search schedules are part of the same configuration.
+The workflow is depicted in Fig.~\ref{fig:pipeline_fig} and Table~\ref{tab:workflow}; concrete hyperparameters for our experiments appear in the case studies so this section stays aligned with the implementation.
+
+\subsection{Global Search}
+\label{sec:method-global}
+% Global search uses Optuna~\cite{optuna_2019} with multi-objective optimization to explore the search space, sample candidate architectures, and evaluate each model.
+% During this stage, SNAC-Pack searches across architecture and deployment-oriented design choices such as layer depth, hidden dimensions, activations, normalization settings, and task-specific input representations.
+% Any combination of rule4ml-estimated hardware metrics~\cite{rahimifar2025rule4ml}, wa-hls4ml surrogate estimators~\cite{hawks2025wahls4mlbenchmarksurrogatemodels}, BOPs, and model accuracy can be used as optimization objectives.
+% These objectives can include BOPs, estimated average resource utilization, initiation interval (II), latency clock cycles, DSPs, LUTs, FFs, and BRAM utilization depending on the target deployment constraints.
+% This allows hundreds of candidate architectures to be evaluated during search without requiring expensive FPGA synthesis for each trial.
+% In this work, SNAC-Pack uses estimated average resource utilization, estimated clock cycles, BOPs, and model accuracy as objectives during search.
+
+% Global search performs multi-objective neural architecture search using Optuna~\citep{optuna_2019} with NSGA-II~\citep{NSGA}.
+% Candidate architectures are sampled from a configurable search space containing architectural, training, and deployment-oriented hyperparameters, including layer depth, hidden dimensions, activations, normalization layers, and task-specific input representations.
+% Each sampled architecture is trained and evaluated against user-defined objectives.
+% These objectives can include model accuracy, BOPs, estimated average resource utilization, estimated latency clock cycles, and individual FPGA resource metrics such as LUTs, DSPs, FFs, and BRAM utilization.
+% In this work, SNAC-Pack optimizes combinations of estimated average resource utilization, estimated latency clock cycles, BOPs, and model accuracy depending on the application.
+
+% To enable scalable search, SNAC-Pack distributes Optuna trials across multiple workers and compute nodes using shared SQLite storage.
+% Each worker independently samples architectures, evaluates objectives, and updates a shared Pareto archive.
+% Because FPGA synthesis can require minutes to hours per architecture, directly synthesizing all candidates inside the search loop is impractical.
+% Instead, hardware objectives are estimated using the surrogate model during search, allowing hundreds of candidate architectures to be explored efficiently before synthesis.
+% The global search stage produces a Pareto front of architectures representing trade-offs between task performance and deployment cost.
+% Architectures satisfying user-defined deployment constraints are then selected for local search refinement.
+
+Global search runs multi-objective neural architecture search in Optuna~\citep{optuna_2019} with NSGA-II~\citep{NSGA}.
+For each trial, the sampler draws architectural and training hyperparameters (depth, widths, activations, normalization, regularization, and other user-defined knobs) from the search space and builds a Keras model in TensorFlow.
+The model is trained for a set number of epochs on the task loss, and a validation metric such as accuracy or readout fidelity is recorded.
+When BOPs is an objective, it is computed analytically from the architecture and the configured numeric precision.
+If hardware-aware mode is on, the same trained graph is passed to rule4ml's \texttt{MultiModelWrapper} together with an hls4ml-style configuration (board, strategy, precision, reuse factor, and related metadata) so LUT, FF, BRAM, DSP utilization and latency in clock cycles can be estimated quickly instead of invoking Vivado on every candidate.
+Each trial returns one scalar per objective in a fixed order, and Optuna persists objectives and study metadata in a relational backend.
+
+NSGA-II evolves a population under Pareto dominance, so the study keeps a set of mutually nondominated trials rather than collapsing everything to a single score.
+In our setup, the task metric (accuracy or fidelity) is maximized while BOPs, surrogate resource metrics, and surrogate latency are minimized, which matches the deployment goal of keeping task quality high while pushing resource use and cycles down.
+Which objectives are turned on is a YAML choice; in the experiments below we use subsets of the task metric, BOPs, mean predicted utilization across LUT/FF/BRAM/DSP, and rule4ml's latency field.
+
+Rule4ml can score Keras or PyTorch models in general~\citep{rahimifar2025rule4ml}; SNAC-Pack passes the trained Keras graph from each trial together with HLS settings to obtain predicted BRAM, DSP, FF, LUT counts or percentages and latency in clock cycles.
+For search we aggregate the four utilization percentages into one average-resource objective (their arithmetic mean), while still logging the per-resource columns when we want to inspect constraints or post hoc behavior.
+These numbers are inexpensive proxies: they help explore toward promising regions, while the hls4ml synthesis results after local search supply the ground truth we report in the case studies.
+
+Trials may be run back-to-back on one machine or sent out to many workers or Slurm tasks that all point at the same Optuna storage URL.
+The bundled workflow uses a shared SQLite study so workers can append completed trials safely; each worker executes the same code path as a single-node run, and ``parallel'' here means independent trials in flight at once, not model-parallel training inside one trial.
+Wall time is dominated by short fine-tuning and surrogate calls, not by place-and-route.
+
+\subsection{Local Search and Synthesis}
+\label{sec:method-local}
+% Architectures selected from global search undergo a second local search stage focused on deployment-oriented model compression and refinement.
+% Local search applies quantization-aware training (QAT) and iterative magnitude pruning to further reduce hardware utilization while maintaining task performance.
+
+% This stage explores different sparsity and quantization configurations, generating compressed Pareto-optimal models with varying deployment trade-offs.
+% The final optimized architectures are synthesized using hls4ml~\citep{hls4ml,fastml_hls4ml,10.1145/3801979} to generate FPGA firmware and obtain post-synthesis hardware resource utilization and latency measurements.
+
+Global search writes a Pareto archive to disk (CSV summaries and YAML checkpoints for selected trials).
+We pick one or more points on that front---for example, those with the best task performance subject to surrogate budgets---and export them as BlockBased YAML for the compression stage.
+
+Local search uses SNAC-Pack's combined QAT\,+\,pruning driver (\texttt{tf\_local\_search\_combined}).
+For each fixed-point precision pair $(\text{total bits}, \text{integer bits})$ in the local-search configuration, we convert the floating-point seed to a QKeras QAT model, run a QAT warmup for \texttt{qat\_epochs}, then run iterative magnitude pruning with TensorFlow Model Optimization's \texttt{prune\_low\_magnitude}.
+Pruning repeats for a configured number of iterations; each pass removes another fraction of the weights that are still nonzero, with the aggressiveness set by the YAML \texttt{pruning\_rate} (concrete values appear in the case-study tables).
+Each iteration trains the pruned QAT model for \texttt{epochs\_per\_iteration}, evaluates validation performance (or fold-averaged metrics when stratified $k$-fold cross-validation is enabled), strips pruning wrappers for measurement, logs sparsity and effective BOPs, and applies lottery-ticket-style weight rewinding: pruned weights are zeroed while surviving weights are reset to their post-warmup values before the next iteration.
+The best weights seen across iterations for that precision are checkpointed, and the outer loop repeats over every precision pair so we obtain a small family of compressed models rather than a single point estimate.
+Optional stratified $k$-fold splits reuse the same schedule per fold and average reported metrics; the fold count is part of the YAML experiment definition.
+
+After local search, chosen checkpoints are exported through hls4ml using the board, I/O style, reuse factor, strategy, and fixed-point formats declared in the experiment configuration.
+Vivado reports post-route resource utilization, latency, and initiation interval; those are the numbers we tabulate as ground truth in the case studies and use to check surrogate quality from global search.
+
+\subsection{MCP Interface}
+To lower the barrier to entry for non-experts and enable agentic workflows, SNAC-Pack exposes its full pipeline through a Model Context Protocol (MCP) layer that wraps the search, planning, and synthesis stages as a fixed set of tools with typed schemas.
+The MCP server registers ten tools spanning dataset discovery (listing built-in datasets, profiling their modality, shape, and loader availability), search planning (deterministically mapping a dataset specification and user constraints to a complete YAML configuration, with explicit warnings when requests fall outside the supported model families), and end-to-end execution (running global search, local search, and synthesis from either an existing configuration or a freshly planned one).
+A natural-language entry point parses plain-English requests for search budget, hardware-aware objectives, latency or resource targets, and model-family preferences into structured planner constraints, allowing a user to run the full pipeline with a sentence rather than a configuration file.
+The same tool implementations are reachable through three integration paths: a native MCP server for MCP-capable clients, the OpenAI Responses API with remote MCP for managed tool orchestration, and a local tool-calling loop compatible with any OpenAI-style chat completions endpoint.
+All file paths passed to the tools are restricted to the repository root, so an agent cannot read or write outside the project.
+The underlying YAML-driven workflow is unchanged, and the MCP layer simply allows an LLM agent to inspect the repository, profile a new dataset, plan a hardware-aware search, and run it without writing code or configs by hand.
+
+\begin{table}[ht]
+\centering
+\caption{SNAC-Pack workflow}
+\label{tab:workflow}
+
+\begin{tabular}{ll}
+\toprule
+Step & Description \\
+\midrule
+
+1 & Define YAML configuration for dataset, search space, objectives, and deployment settings \\
+
+2 & Run global multi-objective architecture search \\
+
+3 & Generate Pareto-optimal candidate architectures \\
+
+4 & Run local search to refine selected models using QAT and pruning \\
+
+5 & Synthesize models with hls4ml for FPGA deployment \\
+
+\bottomrule
+\end{tabular}
+
+\end{table}
+\section{Case Studies}
+\label{sec:case-studies}
+
+\subsection{Jet Classification}
+
+To show the effectiveness of SNAC-Pack, we apply it to jet classification, a common and challenging task in high energy physics at the Large Hadron Collider (LHC).
+The goal is to accurately classify collision-created jets into one of five categories (light quark, gluon, W boson, Z boson, top quark) based on their kinematic properties.
+This is showcased with the hls4ml LHC dataset \cite{pierini_2020_3602260}.
+The 8 constituents with the greatest transverse momentum are used per jet.
+
+For this task, we configure SNAC-Pack to search for an optimal multi-layer perceptron (MLP) architecture, with an 8 constituent MLP as a comparative baseline \cite{Odagiu_2024} with the data processed and normalized as done there.
+This baseline is chosen, as it is one of the state-of-the-art architectures for this task.
+The global search uses the Non-dominated Sorting Genetic Algorithm II (NSGA-II) \cite{NSGA}, exploring the MLP search space in Table~\ref{tab:mlp-parameter-table} (Appendix~\ref{app:jet-search-config}; depth, widths, activations, batch normalization~\cite{ioffe2015batch}, learning rate, $L_1$ regularization, and dropout).
+The objectives used are estimated average hardware utilization, estimated clock cycles, and accuracy. All training is performed with a batch size of 128. Global search is performed for 500 trials, 5 epochs per trial, and an evolutionary population size of 20.
+
+% The result is depicted as three Pareto fronts, seen in Figs. \ref{fig:snac-pack_res_cc}, \ref{fig:snac-pack_res_acc}, \ref{fig:snac-pack_cc_acc}. 
+% For comparison the search is also ran with NAC, optimizing solely for BOPs and accuracy, with the same number of trials and epochs.
+% The resulting Pareto front is shown in Fig.~\ref{fig:nac_pareto_front}.
+% The Pareto-optimal architectures with an accuracy greater than 0.638 are selected for local search and compared to the baseline~\cite{Odagiu_2024}, seen in Table~\ref{tab:mlp-global-comparison}. This accuracy value is selected as the threshold to ensure the accuracy meets or exceeds that of the baseline.
+
+% For local search, each selected architecture undergoes a 5 epoch warm-up phase, followed by 10 iterations of iterative magnitude pruning~\cite{frankle2019stabilizing,frankle2018lottery}, with each iteration trained for 10 epochs and 20\% of the remaining weights pruned per iteration. Quantization-aware training (QAT)~\cite{quantization_survey} is performed using 8-bit precision. Local search and synthesis settings are summarized in Table~\ref{tab:mlp-local-search-table}.
+
+The results are summarized in Fig.~\ref{fig:jet_pareto_combined}: three SNAC-Pack surrogate Pareto projections (average resources versus clock cycles, average resources versus accuracy, and clock cycles versus accuracy) and, for comparison, an NAC Pareto front in the BOPs-versus-accuracy plane.
+For comparison the search is also run with NAC, optimizing solely for BOPs and accuracy, with the same number of trials and epochs.
+The resulting Pareto front is shown in Fig.~\ref{fig:nac_pareto_front}.
+We take two checkpoints from the SNAC-Pack global Pareto archive to show that the workflow leaves multiple viable deployment choices rather than collapsing to a single scalarized solution.
+The Optimal Accuracy SNAC-Pack row is the nondominated trial with highest validation accuracy subject to accuracy greater than 0.638, so it matches or exceeds the baseline~\cite{Odagiu_2024} on that axis.
+The Optimal Resource SNAC-Pack row is the Pareto-optimal trial with the lowest BOPs, estimated average resource utilization, and estimated clock cycles among trials with validation accuracy at least 62\%.
+Both architectures undergo the same local search and synthesis protocol (Table~\ref{tab:mlp-local-search-table}, Appendix~\ref{app:jet-search-config}) and appear alongside NAC and the baseline in Tables~\ref{tab:mlp-global-comparison} and~\ref{tab:model-comparison-synth}.
+
+For local search, each selected architecture is compressed with combined QAT and iterative magnitude pruning~\cite{quantization_survey,frankle2019stabilizing,frankle2018lottery}: a five-epoch QAT warm-up at 8-bit precision, followed by ten pruning iterations that each train for ten epochs and remove 20\% of the remaining weights on the quantized model.
+The associated local-search and hls4ml synthesis settings are listed in Table~\ref{tab:mlp-local-search-table} (Appendix~\ref{app:jet-search-config}).
+
+\begin{table}[t]
+  \caption{Comparison of model accuracy, BOPs, and estimated hardware metrics from global search. The Baseline was optimized for accuracy, NAC for accuracy and BOPs, and SNAC-Pack for accuracy, estimated average resources, and clock cycles. Two SNAC-Pack rows reflect different selection rules on the same Pareto archive (see text). The best values are reported in bold.}
+  \label{tab:mlp-global-comparison}
+  \centering
+  \footnotesize
+  \begin{tabular}{lcccc}
+    \toprule
+    Model & Accuracy [\%] & BOPs & Est. average resources [\%]& Est. latency (cc) \\
+    \midrule
+    Baseline \cite{Odagiu_2024}          & 63.77 & 25{,}916 & 7.10 & 183.74 \\
+    Optimal NAC \cite{Weitz_2025}      & 63.81 & 7{,}904  & 3.60   & 62.69 \\
+    Optimal Accuracy SNAC-Pack & \textbf{63.84} & 8{,}352  & 3.12 & 72.24 \\
+    Optimal Resource SNAC-Pack & 62.30 & \textbf{4{,}768} & \textbf{1.96} & \textbf{56.59} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+With hls4ml, the resulting architectures are then synthesized on the Xilinx Virtex UltraScale+ VU13P FPGA, with io\_parallel io\_type, latency strategy, a reuse factor of 1. Resource utilization and latency are shown in Table \ref{tab:model-comparison-synth}.
+
+% Seen in Table \ref{tab:mlp-global-comparison}, the model found with the SNAC-Pack framework performs similarly to the NAC model and baseline in terms of accuracy, and it is comparable to the NAC model in the other criteria. Table \ref{tab:model-comparison-synth} shows that the SNAC-Pack model matches metrics of the other models, but can improve in terms of latency. This is an indicator of a need to improve the estimation of resources themselves.
+
+Table~\ref{tab:mlp-global-comparison} shows that Optimal Accuracy SNAC-Pack reaches the highest validation accuracy in this comparison, while Optimal Resource SNAC-Pack trades about 1.5 percentage points of accuracy for substantially lower BOPs, estimated average resources, and estimated latency under its 62\% accuracy floor.
+After local search and synthesis (Table~\ref{tab:model-comparison-synth}), Optimal Resource SNAC-Pack improves post-route latency and LUT, FF, and BRAM usage relative to the baseline and the other learned models, matches the baseline initiation interval in this build, and demonstrates that the hardware-aware search objective can surface a genuinely cheaper deployment point when a modest accuracy relaxation is acceptable.
+Optimal Accuracy SNAC-Pack keeps the strongest accuracy among the searched models but ends up with higher post-synthesis latency than the baseline, which underscores that surrogate rankings during global search do not always align with Vivado timing and points to where the latency predictor is miscalibrated for this checkpoint.
+
+\begin{table}[t]
+  \caption{Hardware resource utilization and latency for the selected models after local search and synthesis. The baseline is pruned by 50\% and quantized to 8 bits. NAC and both SNAC-Pack checkpoints are synthesized after the same style of local search. CC is the number of clock cycles. The SNAC-Pack architectures follow the pruning and QAT schedule in Table~\ref{tab:mlp-local-search-table}. The best values are reported in bold.}
+  \label{tab:model-comparison-synth}
+  \centering
+  \scriptsize
+  \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lcccccc}
+      \toprule
+      Model & Lat. [ns] (cc) & II [ns] (cc) & DSP & LUT & FF & BRAM \\
+      \midrule
+      Baseline \cite{Odagiu_2024} & 105 (21) & 5 (1) & 262 (2.1\%) & 155080 (9.0\%) & 25714 (0.7\%) & 4 (0.1\%) \\
+      Optimal NAC \cite{Weitz_2025} & 125 (25) & 60 (12) & \textbf{0} & 54075 (3.13\%) & 12016 (0.35\%) & 8 (0.3\%) \\
+      Optimal Accuracy SNAC-Pack & 140 (24) & 70 (12) & \textbf{0} & 57728 (3.34\%) & 12605 (0.36\%) & \textbf{0} \\
+      Optimal Resource SNAC-Pack& \textbf{50 (10)} & \textbf{5 (1)} & \textbf{0} & \textbf{34472 (1.99\%)} & \textbf{5061 (0.15\%)} & \textbf{0} \\
+      \bottomrule
+    \end{tabular}%
+  }
+\end{table}
+
+% \begin{figure}[t]
+%   \centering
+%   \includegraphics[width=0.6\linewidth]{figures/old_results/aaa_avg_resource_vs_clock_cycles.pdf} % larger
+%   \caption{SNAC-Pack Pareto front of estimated average resources versus estimated clock cycles. Each point represents a unique architecture sampled.}
+%   \label{fig:snac-pack_res_cc}
+% \end{figure}
+% \begin{figure}[t]
+%   \centering
+%   \includegraphics[width=0.6\linewidth]{figures/old_results/aaa_val_acc_vs_avg_resource.pdf} % larger
+%   \caption{SNAC-Pack Pareto fronts of estimated average resources versus accuracy. Each point represents a unique architecture sampled.}
+%   \label{fig:snac-pack_res_acc}
+% \end{figure}
+% \begin{figure}[t]
+%   \centering
+%   \includegraphics[width=0.6\linewidth]{figures/old_results/aaa_val_acc_vs_clock_cycles.pdf} % larger
+%   \caption{SNAC-Pack Pareto fronts of estimated clock cycles versus accuracy. Each point represents a unique architecture sampled.}
+%   \label{fig:snac-pack_cc_acc}
+% \end{figure}
+% \begin{figure}[t]
+%   \centering
+%   \includegraphics[width=0.6\linewidth]{figures/old_results/aaa_val_acc_vs_bops.pdf} % smaller
+%   \caption{NAC Pareto front of BOPs versus accuracy. Each point represents a unique architecture sampled.}
+%   \label{fig:nac_pareto_front}
+% \end{figure}
+
+\begin{figure*}[t]
+    \centering
+
+    \begin{subfigure}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/old_results/aaa_avg_resource_vs_clock_cycles.pdf}
+        \caption{Average resources vs. clock cycles.}
+        \label{fig:snac-pack_res_cc}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/old_results/aaa_val_acc_vs_avg_resource.pdf}
+        \caption{Average resources vs. accuracy.}
+        \label{fig:snac-pack_res_acc}
+    \end{subfigure}
+
+    \vspace{0.5em}
+
+    \begin{subfigure}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/old_results/aaa_val_acc_vs_clock_cycles.pdf}
+        \caption{Clock cycles vs. accuracy.}
+        \label{fig:snac-pack_cc_acc}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/old_results/aaa_val_acc_vs_bops.pdf}
+        \caption{BOPs vs. accuracy (NAC).}
+        \label{fig:nac_pareto_front}
+    \end{subfigure}
+
+    \caption{
+    Pareto fronts obtained during jet classification global search. 
+    SNAC-Pack optimizes estimated hardware-aware objectives and accuracy, while NAC optimizes BOPs and accuracy.
+    Each point represents a sampled architecture.
+    }
+    \label{fig:jet_pareto_combined}
+\end{figure*}
+
+\subsection{Qubit Readout}
+
+We also evaluate SNAC-Pack on qubit readout classification using superconducting qubit I/Q signal data~\cite{}. The task is to classify the qubit state from time-series microwave readout signals under strict latency and hardware resource constraints. The dataset consists of in-phase (I) and quadrature (Q) signals collected from dispersive transmon qubit measurements, where the measured microwave response depends on the underlying qubit state.
+
+For this task, we configure SNAC-Pack to search for compact MLP-based architectures optimized for FPGA deployment using hls4ml. The optimization objectives include readout fidelity, estimated hardware resource utilization, and estimated latency. The global search uses NSGA-II~\cite{NSGA}, with the hyperparameter grid in Table~\ref{tab:qubit-global-parameter-table} (Appendix~\ref{app:qubit-search-config}).
+
+The baseline model uses a 400 clock cycle readout window starting at clock cycle 100, where the I and Q signal windows are concatenated into an 800-dimensional input. SNAC-Pack explores smaller readout windows and reduced model capacity to reduce latency and hardware utilization while maintaining fidelity. The search also allows optional removal of hidden activations to evaluate whether nonlinearities improve performance enough to justify additional deployment cost.
+
+Candidate architectures selected from global search are refined through local search using quantization-aware training (QAT) and iterative magnitude pruning before synthesis with hls4ml for FPGA deployment; local search and synthesis settings are in Table~\ref{tab:qubit-local-search-table} (Appendix~\ref{app:qubit-search-config}).
+
+The resulting Pareto front contains compact architectures representing trade-offs between readout fidelity and estimated LUT utilization.
+
+With hls4ml, the resulting architectures are synthesized for FPGA deployment on the ZCU102 platform using a latency-oriented synthesis strategy and a reuse factor of 8. Resource utilization and latency estimates are shown in Table~\ref{tab:qubit-model-comparison-synth}.
+
+Seen in Table~\ref{tab:qubit-global-comparison}, the SNAC-Pack framework is able to identify compact architectures that maintain comparable readout fidelity while reducing estimated LUT utilization relative to the baseline model. The explored architectures also demonstrate that smaller readout windows and reduced model capacity can remain sufficient for the task.
+
+Table~\ref{tab:qubit-model-comparison-synth} further shows that the selected SNAC-Pack architectures can improve FPGA resource utilization after synthesis while maintaining deployment-oriented latency characteristics. These results highlight the importance of hardware-aware optimization and readout window selection for real-time qubit readout applications.
+
+
+% \begin{table}[t]
+%   \caption{Estimated hardware metrics for the selected SNAC-Pack qubit readout model from global search.}
+%   \label{tab:qubit-global-comparison}
+%   \centering
+%   \footnotesize
+%   \begin{tabular}{lcccc}
+%     \toprule
+%     Model & Fidelity [\%] & BOPs & Est. average resources & Est. clock cycles \\
+%     \midrule
+%     Optimal SNAC-Pack & 95.21 & 1{,}026{,}048 & 0.61 & 810.36 \\
+%     \bottomrule
+%   \end{tabular}
+% \end{table}
+
+\begin{table}[t]
+  \caption{Comparison of model accuracy, BOPs, and estimated hardware metrics from global search. Note that while all metrics are reported here for consistency, the Baseline was optimized for accuracy and SNAC-Pack for accuracy, estimated average resources and clock cycles. The best values are reported in bold.}
+  \label{tab:qubit-global-comparison}
+  \centering
+  \footnotesize
+  \begin{tabular}{lcccc}
+    \toprule
+    Model & Accuracy [\%] & BOPs & Est. average resources [\%] & Est. latency (cc) \\
+    \midrule
+    Baseline \cite{} & \textbf{96.06} & 3{,}487{,}250 & 0.79 & 948.67 \\
+    Optimal SNAC-Pack & 95.21 & \textbf{1{,}026{,}048} & \textbf{0.61} & \textbf{810.36} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[t]
+  \caption{Hardware resource utilization and latency estimates for qubit readout models synthesized with hls4ml. The baseline model uses a 400 clock cycle readout window with an 800-dimensional input. The SNAC-Pack model is synthesized after local search with combined quantization-aware training and iterative magnitude pruning. CC denotes the number of clock cycles. The best values are reported in bold.}
+  \label{tab:qubit-model-comparison-synth}
+  \centering
+  \scriptsize
+  \resizebox{\textwidth}{!}{%
+    \begin{tabular}{lcccccc}
+      \toprule
+      Model & Lat. [ns] (cc) & II [ns] (cc) & DSP & LUT & FF & BRAM \\
+      \midrule
+      Baseline & 19.35 (6) & 16.1 (5) & \textbf{0} & 15045 (5.49\%) & 3656 (0.67\%) & \textbf{0} \\
+      Optimal SNAC-Pack & \textbf{12.9 (4)} & \textbf{12.9 (4)} & \textbf{0} & \textbf{6996 (2.55\%)} & \textbf{2330 (0.43\%)} & \textbf{0} \\
+      \bottomrule
+    \end{tabular}%
+  }
+\end{table}
+
+% \begin{figure}[t]
+%   \centering
+%   \includegraphics[width=0.6\linewidth]{figures/qubit_optuna_job_52893384_01_avg_resource_vs_clock_cycles.png} % larger
+%   \caption{SNAC-Pack Pareto front of estimated average resources versus estimated clock cycles. Each point represents a unique architecture sampled.}
+%   \label{fig:snac-pack_qubit_res_cc}
+% \end{figure}
+% \begin{figure}[t]
+%   \centering
+%   \includegraphics[width=0.6\linewidth]{figures/qubit_optuna_job_52893384_02_avg_resource_vs_performance_metric.png} % larger
+%   \caption{SNAC-Pack Pareto fronts of estimated average resources versus accuracy. Each point represents a unique architecture sampled.}
+%   \label{fig:snac-pack_qubit_res_acc}
+% \end{figure}
+% \begin{figure}[t]
+%   \centering
+%   \includegraphics[width=0.6\linewidth]{figures/qubit_optuna_job_52893384_03_clock_cycles_vs_performance_metric.png} % larger
+%   \caption{SNAC-Pack Pareto fronts of estimated clock cycles versus accuracy. Each point represents a unique architecture sampled.}
+%   \label{fig:snac-pack_qubit_cc_acc}
+% \end{figure}
+% \begin{figure}[t]
+%   \centering
+%   \includegraphics[width=0.6\linewidth]{figures/qubit_optuna_job_52893384_04_bops_vs_performance_metric.png} % smaller
+%   \caption{NAC Pareto front of BOPs versus accuracy. Each point represents a unique architecture sampled.}
+%   \label{fig:snac-pack_qubit_bops_acc}
+% \end{figure}
+
+\begin{figure*}[t]
+    \centering
+
+    \begin{subfigure}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/qubit_optuna_job_52893384_01_avg_resource_vs_clock_cycles.pdf}
+        \caption{Average resources vs. clock cycles.}
+        \label{fig:snac-pack_qubit_res_cc}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/qubit_optuna_job_52893384_02_avg_resource_vs_performance_metric.pdf}
+        \caption{Average resources vs. accuracy.}
+        \label{fig:snac-pack_qubit_res_acc}
+    \end{subfigure}
+
+    \vspace{0.5em}
+
+    \begin{subfigure}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/qubit_optuna_job_52893384_03_clock_cycles_vs_performance_metric.pdf}
+        \caption{Clock cycles vs. accuracy.}
+        \label{fig:snac-pack_qubit_cc_acc}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.48\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{figures/qubit_optuna_job_52893384_04_bops_vs_performance_metric.pdf}
+        \caption{BOPs vs. accuracy.}
+        \label{fig:snac-pack_qubit_bops_acc}
+    \end{subfigure}
+
+    \caption{
+    Pareto fronts obtained during qubit readout global search. 
+    SNAC-Pack optimizes estimated hardware-aware objectives. accuracy and BOPs.
+    Each point represents a sampled architecture.
+    }
+    \label{fig:qubit_pareto_combined}
+\end{figure*}
+
+% \section{Conclusion}
+
+% This work introduced the Surrogate Neural Architecture Codesign Package (SNAC-Pack), a framework that extends NAC by incorporating resource-aware objectives estimated with rule4ml.
+% Applied to the jet classification task, the optimal model produced by SNAC-Pack performed comparably to the NAC method and baseline reference.
+
+% With slight under performance, this new framework establishes the potential of hardware-awareness in NAS.
+% As a functioning pipeline, there is an opportunity for extensions. 
+% Incorporating additional surrogate models trained on large datasets \cite{hawks2025wahls4mlbenchmarksurrogatemodels} in future work can be an enhancement to improve SNAC-Pack, realtive to the BOPs proxy.
+% With this, the estimation of resources can be refined in order to discover lower latency architectures that utilize fewer true resources.
+
+\section{Conclusion}
+
+This work introduced the Surrogate Neural Architecture Codesign Package (SNAC-Pack), an end-to-end framework for hardware-aware neural architecture search, compression, and FPGA deployment. SNAC-Pack extends NAC by incorporating surrogate hardware estimation through rule4ml and integrating global search, local search, and synthesis into a unified workflow.
+
+The framework was evaluated on both jet classification at the LHC and superconducting qubit readout classification, demonstrating that hardware-aware AutoML can identify compact architectures with competitive task performance while reducing deployment cost. Across both applications, the results show that deployment-aware objectives such as resource utilization, latency, quantization, and sparsity can be incorporated directly into the neural architecture search process.
+
+SNAC-Pack is designed as a modular and configurable workflow where users define datasets, search spaces, optimization objectives, and deployment settings through a YAML interface, after which the search, optimization, and deployment pipeline can be executed automatically. The framework also supports integration with agent-based workflows through the MCP interface.
+
+Future work includes improving surrogate hardware estimation, incorporating robustness and fault-tolerance objectives, extending the framework to larger architectures such as transformers, and exploring adaptive agent-driven search strategies for hardware-aware AutoML.
+
+% \begin{itemize}
+
+%     \item In this work, we presented SNAC-Pack, a hardware-aware AutoML framework for neural architecture codesign and deployment-oriented optimization.
+
+%     \item We demonstrated the framework on real scientific ML applications including jet classification and qubit readout classification.
+
+%     \item Our results show that multi-objective optimization is important in practical deployment settings where accuracy, latency, and hardware resources must all be considered simultaneously.
+
+%     \item Surrogate hardware models enable scalable exploration of large search spaces without requiring expensive synthesis for every candidate model.
+
+%     \item The results also highlight the importance of incorporating domain-specific constraints directly into the optimization process.
+
+%     \item More broadly, SNAC-Pack provides a workflow for connecting AutoML research with real deployment problems in scientific ML, edge AI, and low-latency inference applications.
+
+%     \item Future work includes incorporating robustness and fault-tolerance objectives, extending the framework to larger architectures such as transformers, and exploring agent-based optimization workflows.
+
+% \end{itemize}
+
+% \bibliography{example}
+
+\newpage
+\section{[Optional] Submission Checklist}
+All submissions are welcome to include the AutoML submission checklist provided
+below. \textbf{While not required, including the checklist may be beneficial
+  during the reproducibility review process and for maximizing long-term
+  impact.} If you choose to include the checklist, it will not count towards the
+page limit. The submission checklist draws upon related submission checklists:
+%
+\href{https://neurips.cc/Conferences/2022/PaperInformation/PaperChecklist}
+     {the NeurIPS '22 checklist}
+%
+and the
+\href{https://www.automl.org/wp-content/uploads/NAS/NAS_checklist.pdf}
+     {\textsc{nas} checklist}.
+%
+
+For each question, change the default \verb|\answerTODO{}| (typeset \answerTODO)
+to
+\verb|\answerYes{[justification]}| (typeset \answerYes),
+\verb|\answerNo{[justification]}| (typeset \answerNo), or
+\verb|\answerNA{[justification]}| (typeset \answerNA).
+We recommend including a brief justification to your answer, either by
+referencing the appropriate section of your paper or providing a brief inline
+description.  For example:
+\begin{itemize}
+\item Did you include the license of the code and datasets? \answerYes{See
+  Section~\ref{sec:code}.}
+\item Did you include all the code for running experiments? \answerNo{We include
+  the code we wrote for conducting the experiments, but complete replication
+  depends on proprietary libraries for executing on a private compute
+  cluster. The code therefore is not runnable without modification. To
+  compensate, we provide a runnable but non-parallelized version of the code
+  that could replicate the results at the expense of a greater wall-clock time.}
+\item Did you include the license of the datasets? \answerNA{Our experiments
+  were conducted on publicly available datasets and we have not introduced new
+  datasets.}
+\end{itemize}
+Please note that if you answer a question with \verb|\answerNo{}|, we recommend
+providing an explanation and/or compensation for the omission. For example, if
+you cannot provide complete evaluation code for some reason, you might instead
+provide code for a minimal reproduction of the main insights of your paper.
+
+Please do not modify the questions and only use the provided macros for your
+answers. Note that the submission checklist does not count towards the page
+limit. If you choose to modify \texttt{instructions.tex}, please delete these
+instructions and only keep the Submission Checklist section heading above along
+with the questions/answers below.
+
+\begin{enumerate}
+\item For all authors\dots
+  %
+  \begin{enumerate}
+  \item Do the main claims made in the abstract and introduction accurately
+    reflect the paper's contributions and scope?
+    %
+    \answerYes{The abstract and Section~\ref{sec:intro} describe SNAC-Pack as an open-source hardware-aware NAS framework with surrogate resource estimation, distributed search, and end-to-end FPGA deployment, all of which are demonstrated in the case studies (Section~\ref{sec:case-studies}).}
+    %
+  \item Did you describe the limitations of your work?
+    %
+    \answerYes{We discuss limitations in the Conclusion, including the accuracy of the rule4ml surrogate (Table~\ref{tab:model-comparison-synth} shows the SNAC-Pack model has slightly higher latency than predicted), the restriction to MLP search spaces in the present case studies, and the lack of robustness/fault-tolerance objectives.}
+    %
+  \item Did you discuss any potential negative societal impacts of your work?
+    %
+    \answerYes{SNAC-Pack is a general-purpose AutoML framework for FPGA deployment evaluated on scientific ML tasks (LHC jet classification and qubit readout). The main consideration specific to this work is the agentic MCP interface, which exposes the pipeline to LLM-driven tool calls; to mitigate misuse and accidental filesystem access, all path arguments are confined to the repository root, and tool implementations are thin wrappers over the same YAML-driven workflow used in the non-agentic mode. Beyond this, we do not foresee direct negative societal impacts beyond the standard concerns about automating ML pipelines.}
+    %
+  \item Did you read the ethics review guidelines and ensure that your paper
+    conforms to them? (see \url{https://2022.automl.cc/ethics-accessibility/})
+    %
+    \answerYes{}
+    %
+  \end{enumerate}
+  %
+\item If you ran experiments\dots
+  %
+  \begin{enumerate}
+  \item Did you use the same evaluation protocol for all methods being compared (e.g.,
+    same benchmarks, data (sub)sets, available resources, etc.)?
+    %
+    \answerYes{NAC and SNAC-Pack are compared on the same hls4ml LHC jet dataset~\citep{pierini_2020_3602260} with the same number of trials (500), epochs per trial (5), and evolutionary population size (20), and synthesized on the same VU13P FPGA with identical hls4ml settings (Table~\ref{tab:mlp-local-search-table}, Appendix~\ref{app:jet-search-config}).}
+    %
+  \item Did you specify all the necessary details of your evaluation (e.g., data splits,
+    pre-processing, search spaces, hyperparameter tuning details and results, etc.)?
+    %
+    \answerYes{Search spaces and local-search settings are in Tables~\ref{tab:mlp-parameter-table} and~\ref{tab:mlp-local-search-table} (jet; Appendix~\ref{app:jet-search-config}) and Tables~\ref{tab:qubit-global-parameter-table} and~\ref{tab:qubit-local-search-table} (qubit; Appendix~\ref{app:qubit-search-config}); data preprocessing follows~\citep{Odagiu_2024}.}
+    %
+  \item Did you repeat your experiments (e.g., across multiple random seeds or
+    splits) to account for the impact of randomness in your methods or data?
+    %
+    \answerYes{We ran the searches with kfolding with random seeds to ensure statistical robustness.}
+    %
+  \item Did you report the uncertainty of your results (e.g., the standard error
+    across random seeds or splits)?
+    %
+    \answerNo{Accuracy, BOPs, and post-synthesis resource numbers are reported as point estimates from a single run. See the answer to (c).}
+    %
+  \item Did you report the statistical significance of your results?
+    %
+    \answerNo{Not reported, for the same reason as (d).}
+    %
+  \item Did you use enough repetitions, datasets, and/or benchmarks to support
+    your claims?
+    %
+    \answerYes{We evaluate SNAC-Pack on two distinct scientific ML tasks (LHC jet classification and superconducting qubit readout) with different input modalities, search spaces, and target FPGAs (VU13P and ZCU102), demonstrating that the framework generalizes across deployment settings.}
+    %
+  \item Did you compare performance over time and describe how you selected the
+    maximum runtime?
+    %
+    \answerNo{We report total trial counts (500 trials, 5 epochs each for global search) rather than wall-clock convergence curves. The runtime budget was selected to match the NAC comparison setup~\citep{Weitz_2025}.}
+    %
+  \item Did you include the total amount of compute and the type of resources
+    used (e.g., type of \textsc{gpu}s, internal cluster, or cloud provider)?
+    %
+    \answerTODO{}
+    %
+  \item Did you run ablation studies to assess the impact of different
+    components of your approach?
+    %
+    \answerYes{The comparison against NAC~\citep{Weitz_2025} in Tables~\ref{tab:mlp-global-comparison} and~\ref{tab:model-comparison-synth} serves as an ablation isolating the contribution of the rule4ml surrogate objectives versus the BOPs proxy under an otherwise identical pipeline.}
+    %
+  \end{enumerate}
+  %
+\item With respect to the code used to obtain your results\dots
+  %
+  \begin{enumerate}
+\item Did you include the code, data, and instructions needed to reproduce the
+    main experimental results, including all dependencies (e.g.,
+    \texttt{requirements.txt} with explicit versions), random seeds, an instructive
+    \texttt{README} with installation instructions, and execution commands
+    (either in the supplemental material or as a \textsc{url})?
+    %
+    \answerYes{The framework is open-source at \url{https://github.com/fastmachinelearning/nac-opt}, including the YAML configurations for both case studies, environment specification, and a README with installation and execution instructions.}
+    %
+  \item Did you include a minimal example to replicate results on a small subset
+    of the experiments or on toy data?
+    %
+    \answerYes{The repository ships tutorials for the jet classification and qubit readout case studies as runnable examples.}
+    %
+  \item Did you ensure sufficient code quality and documentation so that someone else
+    can execute and understand your code?
+    %
+    \answerYes{The repository includes per-module documentation. The MLP and block search paths share a unified interface, and the configuration is YAML-driven so external users can target new datasets without modifying source.}
+    %
+  \item Did you include the raw results of running your experiments with the given
+    code, data, and instructions?
+    %
+    \answerYes{Pareto front data underlying Figs.~\ref{fig:snac-pack_res_cc}–\ref{fig:snac-pack_qubit_bops_acc} are saved as Optuna SQLite study files in the repository.}
+    %
+  \item Did you include the code, additional data, and instructions needed to generate
+    the figures and tables in your paper based on the raw results?
+    %
+    \answerYes{Plotting scripts for the Pareto fronts are included in the repository.}
+    %
+  \end{enumerate}
+  %
+\item If you used existing assets (e.g., code, data, models)\dots
+  %
+  \begin{enumerate}
+  \item Did you cite the creators of used assets?
+    %
+    \answerYes{We cite the hls4ml LHC jet dataset~\citep{pierini_2020_3602260}, the qubit readout dataset~\citep{diguglielmo2025endtoendworkflowmachinelearningbased}, NAC~\citep{Weitz_2025}, rule4ml~\citep{Rahimifar_2025}, hls4ml~\citep{hls4ml,fastml_hls4ml}, and Optuna~\citep{optuna_2019}.}
+    %
+  \item Did you discuss whether and how consent was obtained from people whose
+    data you're using/curating if the license requires it?
+    %
+    \answerNA{All datasets used are publicly released for ML research.}
+    %
+  \item Did you discuss whether the data you are using/curating contains
+    personally identifiable information or offensive content?
+    %
+    \answerNA{The datasets contain particle physics simulation data and superconducting qubit measurements, with no personally identifiable or offensive content.}
+    %
+  \end{enumerate}
+  %
+\item If you created/released new assets (e.g., code, data, models)\dots
+  %
+  \begin{enumerate}
+    %
+    \item Did you mention the license of the new assets (e.g., as part of your
+    code submission)?
+    %
+    \answerYes{Apache-2.0 license is mentioned in the repository. See below.}
+    %
+    \item Did you include the new assets either in the supplemental material or as
+    a \textsc{url} (to, e.g., GitHub or Hugging Face)?
+    %
+    \answerYes{\url{https://github.com/fastmachinelearning/nac-opt}}
+    %
+  \end{enumerate}
+  %
+\item If you used crowdsourcing or conducted research with human subjects\dots
+  %
+  \begin{enumerate}
+  \item Did you include the full text of instructions given to participants and
+    screenshots, if applicable?
+    %
+    \answerNA{No crowdsourcing or human subjects research was conducted.}
+    %
+  \item Did you describe any potential participant risks, with links to
+    institutional review board (\textsc{irb}) approvals, if applicable?
+    %
+    \answerNA{No crowdsourcing or human subjects research was conducted.}
+    %
+  \item Did you include the estimated hourly wage paid to participants and the
+    total amount spent on participant compensation?
+    %
+    \answerNA{No crowdsourcing or human subjects research was conducted.}
+    %
+  \end{enumerate}
+\item If you included theoretical results\dots
+  %
+  \begin{enumerate}
+  \item Did you state the full set of assumptions of all theoretical results?
+    %
+    \answerNA{This paper does not present theoretical results.}
+    %
+  \item Did you include complete proofs of all theoretical results?
+    %
+    \answerNA{This paper does not present theoretical results.}
+    %
+  \end{enumerate}
+  %
+\end{enumerate}
+
+
+
+
+\appendix
+\section{Search spaces and local-configuration details}
+
+\subsection{Jet classification (LHC)}
+\label{app:jet-search-config}
+
+\begin{table}[t]
+  \centering
+  \footnotesize
+  \caption{Jet classification: global MLP search ranges. Hidden depth is the number of dense layers before the softmax readout; per-layer width rows apply to hidden layers $1,\ldots,8$ in order, and trailing width choices are unused when a shallower depth is sampled.}
+  \label{tab:mlp-parameter-table}
+  \begin{tabular}{@{}p{0.34\linewidth}p{0.60\linewidth}@{}}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Candidates} \\
+    \midrule
+    Hidden depth (number of dense layers pre-softmax) & $\{4,5,6,7,8\}$ \\
+    Hidden width, layer 1 & $\{64,120,128\}$ \\
+    Hidden width, layer 2 & $\{32,60,64\}$ \\
+    Hidden width, layers 3 and 7 & $\{16,32\}$ \\
+    Hidden width, layers 4--6 & $\{32,64\}$ \\
+    Hidden width, layer 8 & $\{32,44,64\}$ \\
+    Activation (each hidden layer) & ReLU, Tanh, Sigmoid \\
+    Batch normalization (each hidden layer) & True, False \\
+    Learning rate & $0.0010$, $0.0015$, $0.0020$ \\
+    $L_1$ penalty & $0$, $10^{-6}$, $10^{-5}$, $10^{-4}$ \\
+    Dropout (input layer) & $0$, $0.05$, $0.10$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[t]
+  \centering
+  \footnotesize
+  \caption{Jet classification: local refinement and hls4ml synthesis settings shared by the NAC and SNAC-Pack checkpoints in the main comparison.}
+  \label{tab:mlp-local-search-table}
+  \begin{tabular}{@{}p{0.34\linewidth}p{0.60\linewidth}@{}}
+    \toprule
+    \textbf{Setting} & \textbf{Value} \\
+    \midrule
+    QAT precision & 8-bit \\
+    QAT warm-up epochs & 5 \\
+    Magnitude-pruning iterations & 10 \\
+    Training epochs per pruning iteration & 10 \\
+    Weights removed per iteration & 20\% of remaining (per schedule) \\
+    Target FPGA & Xilinx Virtex UltraScale+ VU13P \\
+    hls4ml \texttt{io\_type} & \texttt{io\_parallel} \\
+    Synthesis strategy & Latency \\
+    Reuse factor & 1 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Qubit readout}
+\label{app:qubit-search-config}
+
+\begin{table}[t]
+  \centering
+  \footnotesize
+  \caption{Qubit readout: global search ranges (compact MLP head over a variable-length I/Q window).}
+  \label{tab:qubit-global-parameter-table}
+  \begin{tabular}{@{}p{0.34\linewidth}p{0.60\linewidth}@{}}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Candidates} \\
+    \midrule
+    Hidden width (per head layer) & $\{2,4\}$ \\
+    Hidden activation & ReLU, LeakyReLU, none (linear) \\
+    Normalization & batch, none \\
+    Block type / count & None / 1 block \\
+    Classifier head depth & 2 dense layers \\
+    Readout output & 1 logit (binary readout) \\
+    Readout window size (cycles) & $25,50,\ldots,400$ (step 25) \\
+    Window start index (cycles) & $0,25,\ldots,725$ (step 25) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[t]
+  \centering
+  \footnotesize
+  \caption{Qubit readout: local refinement and hls4ml synthesis settings for the models reported in the main text.}
+  \label{tab:qubit-local-search-table}
+  \begin{tabular}{@{}p{0.34\linewidth}p{0.60\linewidth}@{}}
+    \toprule
+    \textbf{Setting} & \textbf{Value} \\
+    \midrule
+    QAT warm-up epochs & 20 \\
+    Magnitude-pruning iterations & 10 \\
+    Training epochs per pruning iteration & 20 \\
+    Weights removed per iteration & 20\% of remaining (per schedule) \\
+    Fixed-point $(\mathrm{total}, \mathrm{integer})$ sweeps & $(32,16)$, $(16,6)$, $(8,3)$, $(4,1)$ \\
+    Target board & Xilinx ZCU102 \\
+    Default hls4ml precision & \texttt{ap\_fixed<8,3>} \\
+    Synthesis strategy & Latency \\
+    Reuse factor & 8 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\clearpage
+\bibliography{references}
+
+\end{document}

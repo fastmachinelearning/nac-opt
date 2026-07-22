@@ -122,6 +122,18 @@ def parse_args():
                         help='Use hardware-aware metrics')
     parser.add_argument('--no_hardware_metrics', dest='use_hardware_metrics', action='store_false',
                         help='Disable hardware-aware metrics')
+    parser.add_argument(
+        '--objective_names',
+        type=str,
+        default=None,
+        help='Comma-separated objective names (e.g. "performance_metric,bops,lut_pct"). Overrides use_hardware_metrics defaults.',
+    )
+    parser.add_argument(
+        '--maximize_flags',
+        type=str,
+        default=None,
+        help='Comma-separated booleans matching objective_names (e.g. "true,false,false").',
+    )
     
     # Model parameters
     parser.add_argument('--model_type', type=str, default='block', choices=['block', 'mlp'],
@@ -178,9 +190,16 @@ def setup_optuna_storage(args):
         # No storage configured - single-node mode
         return None, None
     
+    # SQLite on a shared FS with many concurrent workers often hits SQLITE_BUSY.
+    # Increase the busy timeout (seconds) so SQLAlchemy retries instead of failing immediately.
+    # For heavy multi-node load, prefer PostgreSQL instead of sqlite:// on scratch.
+    engine_kwargs = None
+    if storage_url.startswith("sqlite"):
+        engine_kwargs = {"connect_args": {"timeout": 300}}
+    
     # Create storage backend
     try:
-        storage = optuna.storages.RDBStorage(url=storage_url)
+        storage = optuna.storages.RDBStorage(url=storage_url, engine_kwargs=engine_kwargs)
     except Exception as e:
         print(f"Warning: Failed to create Optuna storage backend: {e}")
         print("Falling back to in-memory storage (single-node mode)")
@@ -212,13 +231,44 @@ def run_search(args):
     storage, study_name = setup_optuna_storage(args)
     storage_url = args.optuna_storage or os.environ.get('OPTUNA_STORAGE', 'N/A')
     
-    # Set up objectives
-    if args.use_hardware_metrics:
-        objective_names = ["performance_metric", "bops", "avg_resource", "clock_cycles"]
-        maximize_flags = [True, False, False, False]
+    def _parse_csv_list(value: str | None) -> list[str] | None:
+        if not value:
+            return None
+        return [item.strip() for item in value.split(",") if item.strip()]
+
+    def _parse_bool_list(value: str | None) -> list[bool] | None:
+        if not value:
+            return None
+        out = []
+        for item in value.split(","):
+            token = item.strip().lower()
+            if token in ("true", "1", "yes", "y"):
+                out.append(True)
+            elif token in ("false", "0", "no", "n"):
+                out.append(False)
+            else:
+                raise ValueError(f"Invalid maximize flag: {item!r}")
+        return out
+
+    hw_keys = {"lut_pct", "ff_pct", "bram_pct", "dsp_pct", "avg_resource", "clock_cycles"}
+
+    # Set up objectives (config/CLI overrides preferred)
+    objective_names = _parse_csv_list(args.objective_names)
+    maximize_flags = _parse_bool_list(args.maximize_flags)
+    if objective_names is not None:
+        if maximize_flags is None:
+            raise ValueError("When --objective_names is set, --maximize_flags must also be set.")
+        if len(maximize_flags) != len(objective_names):
+            raise ValueError("--maximize_flags length must match --objective_names length.")
+        # Ensure hardware metrics are enabled if any requested objective needs them.
+        args.use_hardware_metrics = bool(args.use_hardware_metrics) or bool(set(objective_names) & hw_keys)
     else:
-        objective_names = ["performance_metric", "bops"]
-        maximize_flags = [True, False]
+        if args.use_hardware_metrics:
+            objective_names = ["performance_metric", "bops", "avg_resource", "clock_cycles"]
+            maximize_flags = [True, False, False, False]
+        else:
+            objective_names = ["performance_metric", "bops"]
+            maximize_flags = [True, False]
     
     # Detect SLURM environment
     is_slurm = 'SLURM_JOB_ID' in os.environ

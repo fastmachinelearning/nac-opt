@@ -4,7 +4,9 @@ import io
 import logging
 import os
 import sys
+import time
 import warnings
+from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
@@ -16,7 +18,11 @@ from qkeras.utils import _add_supported_quantized_objects
 
 from utils.tf_bops import get_linear_bops_tf
 from utils.tf_global_search import _stratified_k_fold_indices
-from utils.tf_local_search_separated import convert_to_qat_model, load_model_from_yaml
+from utils.tf_local_search_separated import (
+    convert_to_qat_model,
+    load_model_from_yaml,
+    loss_and_compile_metrics_from_arch_yaml,
+)
 
 
 # --- Helper Functions ---
@@ -64,6 +70,13 @@ def _clone_qat_model(qat_model):
         cloned = tf.keras.models.clone_model(qat_model)
     cloned.set_weights(qat_model.get_weights())
     return cloned
+
+
+def _step_timing_csv_fields(search_start_perf):
+    """Wall-clock UTC completion time and seconds since combined search began."""
+    completed_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+    elapsed_s = time.perf_counter() - search_start_perf
+    return completed_at, elapsed_s
 
 
 def _compute_effective_bops(baseline_bops, total_bits, sparsity):
@@ -125,7 +138,7 @@ class _QuietTraining:
 # --- Core Combined Search ---
 
 
-def run_combined_search(base_model, dataset, config, results_dir, loss_function, n_folds=1):
+def run_combined_search(base_model, dataset, config, results_dir, loss_function, n_folds=1, compile_metrics=None):
     """
     Run a combined QAT + iterative magnitude pruning local search over precisions.
 
@@ -167,9 +180,11 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
         - ``combined_qat_pruning_log.csv`` (per-iteration summary).
         - ``training_log.txt`` (full Keras training logs).
         - ``best_model_{total_bits}b{int_bits}i.weights.h5`` checkpoints.
-    loss_function : str
-        Keras loss name (e.g., ``'categorical_crossentropy'`` or
-        ``'sparse_categorical_crossentropy'``) used for QAT and pruning phases.
+    loss_function : str or tf.keras.losses.Loss
+        Keras loss (name or callable), e.g. ``'categorical_crossentropy'`` or
+        ``tf.keras.losses.BinaryCrossentropy(from_logits=True)`` for a 1-logit head.
+    compile_metrics : list, optional
+        Metrics passed to ``model.compile`` (default ``["accuracy"]``).
     n_folds : int, optional
         Number of stratified k-fold splits to use (``1`` = no CV, default).
 
@@ -180,11 +195,13 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
         columns::
 
             Precision, TotalBits, IntBits, Iteration,
-            Sparsity, Accuracy, EffectiveBOPs
+            Sparsity, Accuracy, EffectiveBOPs,
+            CompletedAtUtc, ElapsedS
 
         This table is also written incrementally to
         ``combined_qat_pruning_log.csv`` in ``results_dir``.
     """
+    _fit_metrics = compile_metrics if compile_metrics is not None else ["accuracy"]
     x_train, y_train, x_val, y_val = dataset
     pruning_config = config["pruning_settings"]
     qat_config = config["qat_settings"]
@@ -219,7 +236,12 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
     # CSV log
     log_path = os.path.join(results_dir, "combined_qat_pruning_log.csv")
     with open(log_path, "w") as f:
-        f.write("Precision,TotalBits,IntBits,Iteration,Sparsity,Accuracy,EffectiveBOPs\n")
+        f.write(
+            "Precision,TotalBits,IntBits,Iteration,Sparsity,Accuracy,EffectiveBOPs,"
+            "CompletedAtUtc,ElapsedS\n"
+        )
+
+    search_start_perf = time.perf_counter()
 
     # Full training log file (verbose Keras output goes here)
     training_log_path = os.path.join(results_dir, "training_log.txt")
@@ -268,7 +290,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                         qat_model = convert_to_qat_model(base_model, total_bits, int_bits)
 
                     qat_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
-                    qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=["accuracy"])
+                    qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=_fit_metrics)
 
                     print(f"  Fold {fold_idx + 1}/{n_folds}: QAT warmup...", end="", flush=True)
                     training_log.write(f"\n--- QAT Warmup ({qat_config['epochs']} epochs) ---\n")
@@ -309,7 +331,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                         pruned_model = tfmot.sparsity.keras.prune_low_magnitude(
                             model_to_prune, **pruning_params
                         )
-                        pruned_model.compile(optimizer="adam", loss=loss_function, metrics=["accuracy"])
+                        pruned_model.compile(optimizer="adam", loss=loss_function, metrics=_fit_metrics)
 
                         training_log.write(
                             f"\n--- Fold {fold_idx + 1} Pruning iter {i + 1}/{n_iterations} "
@@ -329,7 +351,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
 
                         with tf.keras.utils.custom_object_scope(co):
                             model_stripped = tfmot.sparsity.keras.strip_pruning(pruned_model)
-                        model_stripped.compile(optimizer="adam", loss=loss_function, metrics=["accuracy"])
+                        model_stripped.compile(optimizer="adam", loss=loss_function, metrics=_fit_metrics)
 
                         _, val_acc = model_stripped.evaluate(xf_val, yf_val, verbose=0)
                         actual_sparsity = _compute_model_sparsity(model_stripped)
@@ -366,6 +388,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                     f"  eff_bops={effective_bops_baseline:.2e}"
                 )
 
+                completed_at, elapsed_s = _step_timing_csv_fields(search_start_perf)
                 row = {
                     "Precision": precision_str,
                     "TotalBits": total_bits,
@@ -374,12 +397,15 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                     "Sparsity": 0.0,
                     "Accuracy": avg_acc_baseline,
                     "EffectiveBOPs": effective_bops_baseline,
+                    "CompletedAtUtc": completed_at,
+                    "ElapsedS": elapsed_s,
                 }
                 all_rows.append(row)
                 with open(log_path, "a") as f:
                     f.write(
                         f"'{precision_str}',{total_bits},{int_bits},0,"
-                        f"0.0000,{avg_acc_baseline:.4f},{effective_bops_baseline:.2e}\n"
+                        f"0.0000,{avg_acc_baseline:.4f},{effective_bops_baseline:.2e},"
+                        f"{completed_at},{elapsed_s:.3f}\n"
                     )
 
                 best_avg_acc = avg_acc_baseline
@@ -404,6 +430,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                         f"eff_bops={effective_bops:.2e}\n"
                     )
 
+                    completed_at, elapsed_s = _step_timing_csv_fields(search_start_perf)
                     row = {
                         "Precision": precision_str,
                         "TotalBits": total_bits,
@@ -412,12 +439,15 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                         "Sparsity": avg_sparsity,
                         "Accuracy": avg_acc,
                         "EffectiveBOPs": effective_bops,
+                        "CompletedAtUtc": completed_at,
+                        "ElapsedS": elapsed_s,
                     }
                     all_rows.append(row)
                     with open(log_path, "a") as f:
                         f.write(
                             f"'{precision_str}',{total_bits},{int_bits},{i + 1},"
-                            f"{avg_sparsity:.4f},{avg_acc:.4f},{effective_bops:.2e}\n"
+                            f"{avg_sparsity:.4f},{avg_acc:.4f},{effective_bops:.2e},"
+                            f"{completed_at},{elapsed_s:.3f}\n"
                         )
 
                 # Save best model weights for this precision (from best fold)
@@ -447,7 +477,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
 
                 # Step 2: QAT warmup
                 qat_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
-                qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=["accuracy"])
+                qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=_fit_metrics)
 
                 print(f"  QAT warmup ({qat_config['epochs']} epochs)...", end="", flush=True)
                 training_log.write(f"\n--- QAT Warmup ({qat_config['epochs']} epochs) ---\n")
@@ -475,6 +505,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                     f"Baseline ({eval_label}): accuracy={val_acc_baseline:.4f}, eff_bops={effective_bops_baseline:.2e}\n"
                 )
 
+                completed_at, elapsed_s = _step_timing_csv_fields(search_start_perf)
                 row = {
                     "Precision": precision_str,
                     "TotalBits": total_bits,
@@ -483,12 +514,15 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                     "Sparsity": 0.0,
                     "Accuracy": val_acc_baseline,
                     "EffectiveBOPs": effective_bops_baseline,
+                    "CompletedAtUtc": completed_at,
+                    "ElapsedS": elapsed_s,
                 }
                 all_rows.append(row)
                 with open(log_path, "a") as f:
                     f.write(
                         f"'{precision_str}',{total_bits},{int_bits},0,"
-                        f"0.0000,{val_acc_baseline:.4f},{effective_bops_baseline:.2e}\n"
+                        f"0.0000,{val_acc_baseline:.4f},{effective_bops_baseline:.2e},"
+                        f"{completed_at},{elapsed_s:.3f}\n"
                     )
 
                 best_acc = val_acc_baseline
@@ -508,7 +542,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                     pruned_model = tfmot.sparsity.keras.prune_low_magnitude(
                         model_to_prune, **pruning_params
                     )
-                    pruned_model.compile(optimizer="adam", loss=loss_function, metrics=["accuracy"])
+                    pruned_model.compile(optimizer="adam", loss=loss_function, metrics=_fit_metrics)
 
                     training_log.write(
                         f"\n--- Pruning iter {i + 1}/{n_iterations} "
@@ -530,7 +564,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
 
                     with tf.keras.utils.custom_object_scope(co):
                         model_stripped = tfmot.sparsity.keras.strip_pruning(pruned_model)
-                    model_stripped.compile(optimizer="adam", loss=loss_function, metrics=["accuracy"])
+                    model_stripped.compile(optimizer="adam", loss=loss_function, metrics=_fit_metrics)
 
                     _, val_acc = model_stripped.evaluate(eval_data[0], eval_data[1], verbose=0)
                     actual_sparsity = _compute_model_sparsity(model_stripped)
@@ -548,6 +582,7 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                         f"eff_bops={effective_bops:.2e}\n"
                     )
 
+                    completed_at, elapsed_s = _step_timing_csv_fields(search_start_perf)
                     row = {
                         "Precision": precision_str,
                         "TotalBits": total_bits,
@@ -556,12 +591,15 @@ def run_combined_search(base_model, dataset, config, results_dir, loss_function,
                         "Sparsity": actual_sparsity,
                         "Accuracy": val_acc,
                         "EffectiveBOPs": effective_bops,
+                        "CompletedAtUtc": completed_at,
+                        "ElapsedS": elapsed_s,
                     }
                     all_rows.append(row)
                     with open(log_path, "a") as f:
                         f.write(
                             f"'{precision_str}',{total_bits},{int_bits},{i + 1},"
-                            f"{actual_sparsity:.4f},{val_acc:.4f},{effective_bops:.2e}\n"
+                            f"{actual_sparsity:.4f},{val_acc:.4f},{effective_bops:.2e},"
+                            f"{completed_at},{elapsed_s:.3f}\n"
                         )
 
                     if val_acc > best_acc:
@@ -628,7 +666,8 @@ def combined_local_search_entrypoint(architecture_yaml_path, local_search_config
         The same DataFrame returned by ``run_combined_search`` with columns::
 
             Precision, TotalBits, IntBits, Iteration,
-            Sparsity, Accuracy, EffectiveBOPs
+            Sparsity, Accuracy, EffectiveBOPs,
+            CompletedAtUtc, ElapsedS
     """
     folds_str = f" (k-fold CV, {n_folds} folds)" if n_folds > 1 else ""
     print("\n" + "=" * 50 + f"\n STARTING COMBINED QAT+PRUNING LOCAL SEARCH{folds_str} \n" + "=" * 50)
@@ -638,9 +677,17 @@ def combined_local_search_entrypoint(architecture_yaml_path, local_search_config
         config = yaml.safe_load(f)
 
     x_train, y_train, x_val, y_val = dataset
-    loss_function = (
-        "categorical_crossentropy" if len(y_train.shape) > 1 and y_train.shape[1] > 1 else "sparse_categorical_crossentropy"
-    )
+    loss_fn, comp_metrics = loss_and_compile_metrics_from_arch_yaml(architecture_yaml_path)
+    if loss_fn is not None:
+        loss_function = loss_fn
+        compile_metrics = comp_metrics
+    else:
+        loss_function = (
+            "categorical_crossentropy"
+            if len(y_train.shape) > 1 and y_train.shape[1] > 1
+            else "sparse_categorical_crossentropy"
+        )
+        compile_metrics = None
 
     base_model = load_model_from_yaml(architecture_yaml_path)
 
@@ -650,6 +697,7 @@ def combined_local_search_entrypoint(architecture_yaml_path, local_search_config
         config=config,
         results_dir=results_dir,
         loss_function=loss_function,
+        compile_metrics=compile_metrics,
         n_folds=n_folds,
     )
 

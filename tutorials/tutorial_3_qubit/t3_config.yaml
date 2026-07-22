@@ -7,10 +7,10 @@ dataset:
   data_dir: ../../data/qubit/data # added last /data
   start_location: 100
   window_size: 400
-  subset_size: 1000
+  subset_size: 1000000
   normalize: true
   flatten: true
-  one_hot: true
+  one_hot: false   # required for output_dim: 1 binary heads (scalar 0/1 labels)
   num_classes: 2
 
 search:
@@ -26,13 +26,21 @@ search:
   maximize_flags: [true, false, false, false]
 
 search_space:
-  mlp_width_space: [16, 32, 64, 128]
-  act_space: [ReLU, LeakyReLU]
+  mlp_width_space: [2, 4]
+  act_space: [ReLU, LeakyReLU, null]
   norm_space: [batch, null]
-  block_types: [MLP, None]
-  num_blocks: 4
-  output_dim: 2
-  output_activation: softmax
+  # Force baseline-or-smaller architecture:
+  # - No feature-extractor blocks (only the classifier head)
+  # - Classifier head depth fixed to 2 layers: Dense(4)->Dense(output_dim)
+  block_types: ["None"]
+  num_blocks: 1
+  mlp_head_num_layers: 2
+  output_dim: 1
+  output_activation: null
+  # Qubit window search: sample a valid (start_location, window_size) per trial.
+  # The raw traces are 770 ADC cycles long; validity requires start_location + window_size <= 770.
+  window_size_space: [25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400]
+  start_location_space: [0, 25, 50, 75, 100, 125, 150, 175, 200, 225, 250, 275, 300, 325, 350, 375, 400, 425, 450, 475, 500, 525, 550, 575, 600, 625, 650, 675, 700, 725]
   # Required dummy keys (unused since block_types has no Conv/ConvAttn):
   channel_space: [16, 32]
   kernel_space: [3]
@@ -53,11 +61,12 @@ synthesis:
   hls_output_dir: ./results/tutorial3_qubit_agent/hls_project
 
 local_search:
-  qat_epochs: 2 # 20
-  pruning_iterations: 3 # 10
-  pruning_epochs: 2 # 20
-  pruning_rate: 0.7
+  qat_epochs: 20
+  pruning_iterations: 10
+  pruning_epochs: 20
+  pruning_rate: 0.8
   precision_pairs:
+    - {total_bits: 32, int_bits: 16}
     - {total_bits: 16, int_bits: 6}
     - {total_bits: 8,  int_bits: 3}
     - {total_bits: 4,  int_bits: 1}

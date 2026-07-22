@@ -20,6 +20,80 @@ def _save_architecture_to_yaml(model_details, file_path):
     with open(file_path, 'w') as f:
         yaml.dump(model_details, f, default_flow_style=False, sort_keys=False)
 
+def _qubit_trace_cycles(x: np.ndarray) -> int:
+    """
+    Qubit arrays are stored as I+Q concatenated along axis=1 (optionally with a trailing channel dim).
+    Return the maximum number of ADC cycles available.
+    """
+    if x.ndim == 2:
+        width = int(x.shape[1])
+    elif x.ndim == 3:
+        width = int(x.shape[1])
+    else:
+        raise ValueError(f"Unexpected qubit x shape: {x.shape}")
+    if width % 2 != 0:
+        raise ValueError(f"Expected even qubit feature width (I+Q), got {width}")
+    return width // 2
+
+def _slice_qubit_window(x: np.ndarray, start_location: int, window_size: int) -> np.ndarray:
+    start = int(start_location)
+    window = int(window_size)
+    start_idx = start * 2
+    end_idx = (start + window) * 2
+    if x.ndim == 2:
+        return x[:, start_idx:end_idx]
+    if x.ndim == 3:
+        return x[:, start_idx:end_idx, :]
+    raise ValueError(f"Unexpected qubit x shape: {x.shape}")
+
+def _get_qubit_window_search_spaces(spaces: dict) -> tuple[list[int] | None, list[int] | None]:
+    """
+    Supported config keys:
+      - window_size_space: [..]
+      - start_location_space: [..]
+    """
+    w_space = spaces.get("window_size_space")
+    s_space = spaces.get("start_location_space")
+    if w_space is not None:
+        w_space = [int(v) for v in list(w_space)]
+    if s_space is not None:
+        s_space = [int(v) for v in list(s_space)]
+    return w_space, s_space
+
+def _build_qubit_allowed_window_pairs(
+    *,
+    max_cycles: int,
+    window_size_space: list[int],
+    start_location_space: list[int],
+) -> list[str]:
+    """
+    Build a fixed categorical space of valid (window_size, start_location) pairs.
+    Encoded as strings so Optuna can store parameters reliably.
+
+    Format: "w=<window>,s=<start>"
+    """
+    allowed: list[str] = []
+    for w in window_size_space:
+        w = int(w)
+        if w <= 0 or w > int(max_cycles):
+            continue
+        for s in start_location_space:
+            s = int(s)
+            if s < 0:
+                continue
+            if s + w <= int(max_cycles):
+                allowed.append(f"w={w},s={s}")
+    return allowed
+
+def _decode_qubit_window_pair(pair: str) -> tuple[int, int]:
+    pair = (pair or "").strip()
+    if not pair:
+        raise ValueError("Empty window_pair")
+    parts = dict(item.split("=", 1) for item in pair.split(",") if "=" in item)
+    w = int(parts["w"])
+    s = int(parts["s"])
+    return w, s
+
 def _infer_input_shape_yaml(x):
     """Infer YAML-friendly input shape (no batch dim)."""
     shp = tuple(x.shape)
@@ -190,17 +264,24 @@ def get_activation_tf(act_name):
     Names are NOT set here to prevent duplicates in Sequential models.
     Keras will auto-assign unique names.
     """
-    if act_name is None or act_name.lower() == "identity" or act_name.lower() == "linear":
-        return tf.keras.layers.Activation('linear')
-    elif act_name.lower() == "relu":
+    if act_name is None:
+        return None
+
+    act = str(act_name).lower()
+    if act in ("none", "null"):
+        return None
+    if act in ("identity", "linear"):
+        # Keep an explicit identity activation option for cases where a layer object is desired.
+        return tf.keras.layers.Activation("linear")
+    elif act == "relu":
         return tf.keras.layers.ReLU()
-    elif act_name.lower() == "leakyrelu":
+    elif act == "leakyrelu":
         return tf.keras.layers.LeakyReLU(alpha=0.01)
-    elif act_name.lower() == "gelu":
+    elif act == "gelu":
         return tf.keras.layers.Activation('gelu')
     else:
         # Fallback for other keras supported activations
-        return tf.keras.layers.Activation(act_name.lower())
+        return tf.keras.layers.Activation(act)
 
 def sample_conv_block_tf(trial, prefix, in_channels, search_space, num_layers=2):
     channel_space = search_space["channel_space"]
@@ -240,6 +321,33 @@ def sample_mlp_tf(trial, in_dim, out_dim, prefix, search_space, num_layers=3):
     return widths, act_names, norms
 
 
+def _binary_loss_and_metrics_from_final_activation(final_act):
+    """
+    Binary classifier with a single Dense output.
+
+    If the final activation is null/linear, use logits + BCE(from_logits=True)
+    and BinaryAccuracy(threshold=0.0) matching argmax decision at logit >= 0.
+
+    If the final activation is sigmoid, use BCE(from_logits=False) and
+    threshold 0.5.
+    """
+    if final_act is None:
+        la = ""
+    else:
+        la = str(final_act).strip().lower()
+    if la in ("", "none", "null", "linear", "identity"):
+        from_logits = True
+        threshold = 0.0
+    elif la == "sigmoid":
+        from_logits = False
+        threshold = 0.5
+    else:
+        # e.g. softmax with 1 unit is unusual; treat as probabilities
+        from_logits = False
+        threshold = 0.5
+    loss_fn = tf.keras.losses.BinaryCrossentropy(from_logits=from_logits)
+    metrics = [tf.keras.metrics.BinaryAccuracy(name="accuracy", threshold=threshold)]
+    return loss_fn, metrics
 def build_mlp_from_config_classifier(widths, activations, normalizations, name='mlp'):
     layers = []
     for i in range(len(activations)):
@@ -368,22 +476,56 @@ class GlobalSearchTF:
                 
                 bops = 0
 
-                if one_hot:
-                    loss_function = "categorical_crossentropy"
-                else:
-                    loss_function = "sparse_categorical_crossentropy"
+                # Qubit-specific: optionally sample (start_location, window_size) per trial
+                dataset_window = None
+                if spaces and isinstance(spaces, dict) and ("window_size_space" in spaces or "start_location_space" in spaces):
+                    max_cycles = _qubit_trace_cycles(x_train)
+                    w_space, s_space = _get_qubit_window_search_spaces(spaces)
+                    if w_space is None:
+                        raise ValueError("search_space.window_size_space is required when enabling qubit window search")
+                    # Option A: sample directly from a fixed feasible set of pairs.
+                    # This avoids invalid-window trials and avoids dynamic categorical spaces.
+                    if s_space is not None:
+                        allowed_pairs = spaces.get("_allowed_window_pairs")
+                        if not allowed_pairs:
+                            allowed_pairs = _build_qubit_allowed_window_pairs(
+                                max_cycles=max_cycles,
+                                window_size_space=w_space,
+                                start_location_space=s_space,
+                            )
+                            if not allowed_pairs:
+                                raise ValueError("No valid (window_size, start_location) pairs in the provided spaces.")
+                            # Cache on the search space dict so all trials share the same fixed list.
+                            spaces["_allowed_window_pairs"] = allowed_pairs
 
-                data_is_flat = len(x_train.shape) == 2
+                        pair = trial.suggest_categorical("window_pair", allowed_pairs)
+                        window_size, start_location = _decode_qubit_window_pair(pair)
+                    else:
+                        # Fallback: if no start grid provided, keep separate sampling with pruning.
+                        window_size = int(trial.suggest_categorical("window_size", w_space))
+                        start_location = int(trial.suggest_int("start_location", 0, int(max_cycles)))
+                        if start_location < 0 or (start_location + window_size) > int(max_cycles):
+                            raise optuna.exceptions.TrialPruned(
+                                f"Invalid (start_location={start_location}, window_size={window_size}) for max_cycles={max_cycles}"
+                            )
+
+                    x_train_trial = _slice_qubit_window(x_train, start_location, window_size)
+                    x_val_trial = _slice_qubit_window(x_val, start_location, window_size)
+                    dataset_window = {"start_location": start_location, "window_size": window_size, "max_cycles": max_cycles}
+                else:
+                    x_train_trial, x_val_trial = x_train, x_val
+
+                data_is_flat = len(x_train_trial.shape) == 2
                 if data_is_flat:
                     is_flattened = True
-                    last_layer_units = x_train.shape[1]
+                    last_layer_units = x_train_trial.shape[1]
                     current_img_size = 0
                     current_channels = 0
                 else:
                     is_flattened = False
                     last_layer_units = 0
                     current_img_size = img_size
-                    current_channels = x_train.shape[-1]
+                    current_channels = x_train_trial.shape[-1]
                 
                 model_components = []
                 feature_extractor_blocks = []
@@ -447,13 +589,24 @@ class GlobalSearchTF:
                 else:
                     in_dim = last_layer_units
 
-                mlp_widths, mlp_act_names, mlp_norms = sample_mlp_tf(trial, in_dim, output_dim, "MLP_Head", spaces)
+                # Allow constraining the classifier head depth from the search space.
+                head_num_layers = int(spaces.get("mlp_head_num_layers", 3))
+                mlp_widths, mlp_act_names, mlp_norms = sample_mlp_tf(
+                    trial, in_dim, output_dim, "MLP_Head", spaces, num_layers=head_num_layers
+                )
 
-                # Apply output activation from search space config (e.g. "softmax" for classification, "linear" for regression)
-                output_activation = spaces.get("output_activation", "softmax")
-                if output_activation:
-                    mlp_act_names[-1] = output_activation
+                # Final classifier activation from search space (binary: null = logits; softmax for K>1).
+                if int(output_dim) == 1:
+                    oa = spaces.get("output_activation")
+                    if isinstance(oa, str) and oa.strip().lower() in ("none", "null", ""):
+                        oa = None
+                    mlp_act_names[-1] = oa
                     mlp_norms[-1] = None
+                else:
+                    oa = spaces.get("output_activation", "softmax")
+                    if oa:
+                        mlp_act_names[-1] = oa
+                        mlp_norms[-1] = None
 
                 mlp_acts = [get_activation_tf(act) for act in mlp_act_names]
                 classifier_head = build_mlp_from_config_classifier(mlp_widths, mlp_acts, mlp_norms, name='classifier_head')
@@ -464,14 +617,25 @@ class GlobalSearchTF:
                 })
                 bops += estimate_mlp_bops(mlp_widths)
 
-                input_shape = tuple(x_train.shape[1:])
+                input_shape = tuple(x_train_trial.shape[1:])
                 model = BlockArchitectureTF(feature_extractor_blocks, classifier_head, input_shape, needs_flattening=(not is_flattened))
+
+                final_act = mlp_act_names[-1]
+                if int(output_dim) == 1:
+                    loss_function, compile_metrics = _binary_loss_and_metrics_from_final_activation(final_act)
+                elif one_hot:
+                    loss_function = "categorical_crossentropy"
+                    compile_metrics = ["accuracy"]
+                else:
+                    loss_function = "sparse_categorical_crossentropy"
+                    compile_metrics = ["accuracy"]
 
                 if n_folds > 1:
                     # Combine train+val into a single pool for k-fold splitting
-                    x_all = np.concatenate([x_train, x_val], axis=0)
+                    x_all = np.concatenate([x_train_trial, x_val_trial], axis=0)
                     y_all = np.concatenate([y_train, y_val], axis=0)
-                    fold_indices = _stratified_k_fold_indices(y_all, n_folds, one_hot=one_hot)
+                    strat_one_hot = one_hot and (y_all.ndim > 1 and y_all.shape[1] > 1)
+                    fold_indices = _stratified_k_fold_indices(y_all, n_folds, one_hot=strat_one_hot)
 
                     fold_accuracies = []
                     for fold_idx, (fold_train_idx, fold_val_idx) in enumerate(fold_indices):
@@ -480,7 +644,7 @@ class GlobalSearchTF:
 
                         # clone_model creates fresh random weights, same architecture
                         fold_model = tf.keras.models.clone_model(model.model)
-                        fold_model.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
+                        fold_model.compile(optimizer='adam', loss=loss_function, metrics=compile_metrics)
                         train_model(fold_model, (xf_train, yf_train), (xf_val, yf_val),
                                     epochs=epochs, batch_size=128, verbose=0)
                         fold_metrics = evaluate_model(fold_model, (xf_val, yf_val))
@@ -488,18 +652,27 @@ class GlobalSearchTF:
 
                     performance_metric = np.mean(fold_accuracies)
                 else:
-                    model.compile(optimizer='adam', loss=loss_function, metrics=['accuracy'])
-                    train_model(model, (x_train, y_train), (x_val, y_val),
+                    model.compile(optimizer='adam', loss=loss_function, metrics=compile_metrics)
+                    train_model(model, (x_train_trial, y_train), (x_val_trial, y_val),
                                 epochs=epochs, batch_size=128, verbose=0)
-                    val_metrics = evaluate_model(model, (x_val, y_val))
+                    val_metrics = evaluate_model(model, (x_val_trial, y_val))
                     performance_metric = val_metrics['accuracy']
 
+                hardware_metrics = None
                 if use_hardware_metrics:
                     flat_model = _flatten_keras_model(model.model)
-                    avg_resource, clock_cycles = self.calculate_hardware_metrics(flat_model, input_shape)
+                    hardware_metrics = self.calculate_hardware_metrics(flat_model, input_shape)
+
+                metadata = {
+                    'trial_id': trial.number,
+                    'global_search_accuracy': float(performance_metric),
+                    'global_search_bops': float(bops),
+                }
+                if dataset_window is not None:
+                    metadata["dataset_window"] = dataset_window
 
                 model_details = {
-                    'metadata': {'trial_id': trial.number, 'global_search_accuracy': float(performance_metric), 'global_search_bops': float(bops)},
+                    'metadata': metadata,
                     'architecture': {
                         'model_type': 'BlockBased',
                         'input_shape': list(input_shape),
@@ -517,30 +690,45 @@ class GlobalSearchTF:
                         base_msg += f": Folds=[{fold_str}], MeanAcc={performance_metric:.4f}, BOPs={bops}"
                     else:
                         base_msg += f": Accuracy={performance_metric:.4f}, BOPs={bops}"
-                    if use_hardware_metrics:
-                        base_msg += f", AvgResource={avg_resource:.2f}%, Cycles={clock_cycles}"
+                    if use_hardware_metrics and hardware_metrics is not None:
+                        base_msg += (
+                            f", LUT={hardware_metrics['lut_pct']:.2f}%,"
+                            f" FF={hardware_metrics['ff_pct']:.2f}%,"
+                            f" BRAM={hardware_metrics['bram_pct']:.2f}%,"
+                            f" DSP={hardware_metrics['dsp_pct']:.2f}%,"
+                            f" AvgResource={hardware_metrics['avg_resource']:.2f}%,"
+                            f" Cycles={hardware_metrics['clock_cycles']:.0f}"
+                        )
                     print(base_msg)
 
                 result_data = {
                     'trial': trial.number, 'performance_metric': performance_metric, 'bops': bops,
                     'params': trial.params, 'yaml_path': trial_yaml_path
                 }
-                if use_hardware_metrics:
-                    result_data['avg_resource'] = avg_resource
-                    result_data['clock_cycles'] = clock_cycles
+                if dataset_window is not None:
+                    result_data["start_location"] = dataset_window["start_location"]
+                    result_data["window_size"] = dataset_window["window_size"]
+                if use_hardware_metrics and hardware_metrics is not None:
+                    result_data.update(hardware_metrics)
                 self.results.append(result_data)
                 # Write trial to CSV immediately
                 self._append_trial_to_csv(result_data)
 
-                if use_hardware_metrics:
-                    return performance_metric, bops, avg_resource, clock_cycles
-                return performance_metric, bops
+                metric_values = dict(result_data)
+                # Always return values in the configured objective order
+                return tuple(metric_values[name] for name in self.objective_names)
 
             except Exception as e:
                 print(f"Trial {trial.number} failed with error: {e}")
-                if use_hardware_metrics:
-                    return 0.0, 1e12, 100.0, 1e9
-                return 0.0, 1e12
+                # Return pessimistic defaults in the configured objective order.
+                # performance_metric should be low; everything else should be high.
+                defaults = {}
+                for name, maximize in zip(self.objective_names, self.maximize_flags):
+                    if name == "performance_metric":
+                        defaults[name] = 0.0
+                    else:
+                        defaults[name] = 1e12 if not maximize else -1e12
+                return tuple(defaults[name] for name in self.objective_names)
 
         return objective
 
@@ -686,9 +874,9 @@ class GlobalSearchTF:
             # --- END REPLACEMENT ---
 
             if use_hardware_metrics:
-                avg_resource, clock_cycles = self.calculate_hardware_metrics(model, input_size)
+                hardware_metrics = self.calculate_hardware_metrics(model, input_size)
             else:
-                avg_resource, clock_cycles = 0.0, 0.0
+                hardware_metrics = None
 
             if verbose:
                 print(f"Trial {trial.number}: Accuracy={performance_metric:.4f}, BOPs={bops}")
@@ -700,16 +888,14 @@ class GlobalSearchTF:
                 "params": trial.params,
                 "yaml_path": trial_yaml_path,
             }
-            if use_hardware_metrics:
-                result_data["avg_resource"] = avg_resource
-                result_data["clock_cycles"] = clock_cycles
+            if use_hardware_metrics and hardware_metrics is not None:
+                result_data.update(hardware_metrics)
             self.results.append(result_data)
             # Write trial to CSV immediately
             self._append_trial_to_csv(result_data)
 
-            if use_hardware_metrics:
-                return performance_metric, bops, avg_resource, clock_cycles
-            return performance_metric, bops
+            metric_values = dict(result_data)
+            return tuple(metric_values[name] for name in self.objective_names)
 
         return objective
 
@@ -721,7 +907,10 @@ class GlobalSearchTF:
             input_shape: The input dimension for the model, required for patching.
             
         Returns:
-            tuple: (avg_resource, clock_cycles)
+            dict with keys:
+              - lut_pct, ff_pct, bram_pct, dsp_pct
+              - avg_resource
+              - clock_cycles
         """
         # try:
         #     from rule4ml.models.estimators import MultiModelEstimator
@@ -767,19 +956,27 @@ class GlobalSearchTF:
             
             if not pred_df.empty:
                 results = pred_df.iloc[0]
-                lut = results.get("LUT (%)", 0)
-                ff = results.get("FF (%)", 0)
-                bram = results.get("BRAM (%)", 0)
-                dsp = results.get("DSP (%)", 0)
-                avg_resource = np.mean([lut, ff, bram, dsp])
+                lut = float(results.get("LUT (%)", 0) or 0)
+                ff = float(results.get("FF (%)", 0) or 0)
+                bram = float(results.get("BRAM (%)", 0) or 0)
+                dsp = float(results.get("DSP (%)", 0) or 0)
+                avg_resource = float(np.mean([lut, ff, bram, dsp]))
                 # Rule4ML may return 'CYCLES' or 'Cycles' depending on version
-                clock_cycles = results.get('CYCLES', results.get('Cycles', 1e9))
+                clock_cycles = float(results.get('CYCLES', results.get('Cycles', 1e9)) or 1e9)
             else:
                 print("Warning: Hardware estimation failed to return results. Returning high-penalty default values.")
+                lut, ff, bram, dsp = 100.0, 100.0, 100.0, 100.0
                 avg_resource = 100.0
                 clock_cycles = 1e9
 
-            return avg_resource, clock_cycles
+            return {
+                "lut_pct": lut,
+                "ff_pct": ff,
+                "bram_pct": bram,
+                "dsp_pct": dsp,
+                "avg_resource": avg_resource,
+                "clock_cycles": clock_cycles,
+            }
             
         except ImportError:
             # Re-raise to ensure the user knows rule4ml is missing
@@ -787,7 +984,14 @@ class GlobalSearchTF:
         except Exception as e:
             # Catch other potential errors from the estimator
             print(f"An error occurred during hardware estimation: {e}. Returning high-penalty dummy values.")
-            return 100.0, 1e9
+            return {
+                "lut_pct": 100.0,
+                "ff_pct": 100.0,
+                "bram_pct": 100.0,
+                "dsp_pct": 100.0,
+                "avg_resource": 100.0,
+                "clock_cycles": 1e9,
+            }
 
 
     def run_search( # changed so that dataset_kwargs could be accepted
@@ -895,27 +1099,56 @@ class GlobalSearchTF:
             self.csv_file_path = os.path.join(self.results_dir, f"{model_type}_search_results_rank{rank}.csv")
         else:
             self.csv_file_path = os.path.join(self.results_dir, f"{model_type}_search_results.csv")
-        # Store whether to include hardware metrics for CSV headers
+        # MODIFICATION: Set objective names based on user-specified list (preferred),
+        # otherwise fall back to the historical defaults.
+        def _needs_hardware_metrics(names: list[str]) -> bool:
+            hw = {"lut_pct", "ff_pct", "bram_pct", "dsp_pct", "avg_resource", "clock_cycles"}
+            return bool(set(names or []) & hw)
+
+        if objectives is None:
+            # Backward compatible defaults
+            if use_hardware_metrics:
+                objectives = ['performance_metric', 'bops', 'avg_resource', 'clock_cycles']
+                maximize_flags = maximize_flags or [True, False, False, False]
+            else:
+                objectives = ['performance_metric', 'bops']
+                maximize_flags = maximize_flags or [True, False]
+
+        self.objective_names = list(objectives)
+        if maximize_flags is None:
+            raise ValueError("maximize_flags must be provided when objectives are explicitly set.")
+        if len(maximize_flags) != len(self.objective_names):
+            raise ValueError("maximize_flags length must match objectives length.")
+        self.maximize_flags = list(maximize_flags)
+
+        # Derive whether we need hardware metrics from the objectives list.
+        use_hardware_metrics = bool(use_hardware_metrics) or _needs_hardware_metrics(self.objective_names)
         self.use_hardware_metrics_for_csv = use_hardware_metrics
+
         # Initialize CSV file with headers if it doesn't exist
         if not os.path.exists(self.csv_file_path):
-            # Create empty DataFrame with expected columns to write headers only
-            columns = ['trial', 'performance_metric', 'bops', 'params', 'yaml_path']
-            if use_hardware_metrics:
-                columns.extend(['avg_resource', 'clock_cycles'])
-            columns.append('run_timestamp')
+            # Create empty DataFrame with expected columns to write headers only.
+            # Keep this superset stable so multi-node writes won't drop columns.
+            columns = [
+                'trial',
+                'performance_metric',
+                'bops',
+                'lut_pct',
+                'ff_pct',
+                'bram_pct',
+                'dsp_pct',
+                'avg_resource',
+                'clock_cycles',
+                'start_location',
+                'window_size',
+                'params',
+                'yaml_path',
+                'run_timestamp',
+            ]
             df_headers = pd.DataFrame(columns=columns)
             df_headers.to_csv(self.csv_file_path, index=False)
         if verbose:
             print(f"\n{'='*50}\nStarting {model_type.upper()} Global Search on {dataset.upper()}\n{'='*50}\n")
-
-        # MODIFICATION: Set objective names based on hardware flag and model type
-        if use_hardware_metrics:
-            self.objective_names = objectives or ['performance_metric', 'bops', 'avg_resource', 'clock_cycles']
-            self.maximize_flags = maximize_flags or [True, False, False, False]
-        else:
-            self.objective_names = objectives or ['performance_metric', 'bops']
-            self.maximize_flags = maximize_flags or [True, False]
 
         # MODIFICATION: Conditional data loading based on model type
         is_mlp = (model_type == 'mlp')
@@ -932,6 +1165,23 @@ class GlobalSearchTF:
 
         # Allow caller to override/extend (e.g. data_dir, window_size for qubit)
         loader_kwargs.update(dataset_kwargs or {})
+
+        # Qubit window search: load full trace once, slice per trial in objective
+        if dataset == "qubit" and isinstance(self.search_space, dict) and (
+            "window_size_space" in self.search_space or "start_location_space" in self.search_space
+        ):
+            loader_kwargs = dict(loader_kwargs)
+            loader_kwargs.pop("start_location", None)
+            loader_kwargs["start_location"] = 0
+            loader_kwargs["window_size"] = None
+
+        # Binary readout (Dense(1) + scalar labels): do not use one-hot labels.
+        if (
+            dataset == "qubit"
+            and model_type == "block"
+            and int(self.search_space.get("output_dim", 2)) == 1
+        ):
+            loader_kwargs["one_hot"] = False
 
         x_train, y_train, x_val, y_val = load_generic_dataset(
             dataset_name=dataset,
@@ -1013,13 +1263,18 @@ class GlobalSearchTF:
     def save_results(self, model_type, study):
         # Results are already written incrementally; overwrite with full in-memory data for this worker
         df = pd.DataFrame(self.results)
-        if self.run_timestamp is not None:
+        if self.run_timestamp is not None and not df.empty:
             df["run_timestamp"] = self.run_timestamp
         # Use self.csv_file_path (rank-specific in multi-node, single file in single-node)
         csv_file = self.csv_file_path
         if csv_file:
-            df.to_csv(csv_file, index=False)
-            print(f"\nCSV results saved to {csv_file} ({len(df)} trials)")
+            if df.empty:
+                # Avoid overwriting header-only incremental CSV with a broken frame that only has
+                # run_timestamp (empty list + assignment creates a single-column CSV).
+                print(f"\nCSV results at {csv_file} left as-is ({len(df)} successful trials)")
+            else:
+                df.to_csv(csv_file, index=False)
+                print(f"\nCSV results saved to {csv_file} ({len(df)} trials)")
 
         # Best model: only in single-node (multi-node merge step will create it from merged CSV)
         if "_rank" in (csv_file or ""):

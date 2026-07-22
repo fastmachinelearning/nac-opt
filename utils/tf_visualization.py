@@ -138,6 +138,91 @@ def plot_pareto_fronts(df, objective_info, save_dir=".", show=False):
     print(f"2D Pareto fronts plot saved to {save_path}")
 
 
+def plot_pareto_pairs_subplots(
+    df,
+    objective_info,
+    pairs,
+    save_path,
+    figsize_per=(6, 5),
+    show=False,
+):
+    """
+    Draw a fixed list of 2D objective scatter plots, each with its own 2-objective Pareto front.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Must contain columns named like objectives (lowercase, underscores).
+    objective_info : list of (str, bool)
+        (objective_name, maximize) for every objective that appears in ``pairs``.
+    pairs : list of (str, str)
+        Ordered (x_objective, y_objective) pairs to plot.
+    save_path : str
+        Output image path (e.g. ``.../pareto_four.png``).
+    figsize_per : tuple
+        (width, height) per subplot in inches.
+    show : bool
+        If True, ``plt.show()``; else close figure after save.
+    """
+    obj_map = dict(objective_info)
+    for o, _ in objective_info:
+        col = o.lower().replace(" ", "_")
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' not in DataFrame (objective {o}).")
+
+    n = len(pairs)
+    if n == 0:
+        return
+
+    ncols = 2
+    nrows = int(math.ceil(n / ncols))
+    fig_w, fig_h = figsize_per
+    fig, axes = plt.subplots(nrows, ncols, figsize=(fig_w * ncols, fig_h * nrows))
+    if nrows == 1 and ncols == 1:
+        axes_flat = [axes]
+    else:
+        axes_flat = np.atleast_1d(axes).ravel()
+
+    for idx, (obj1, obj2) in enumerate(pairs):
+        ax = axes_flat[idx]
+        max1 = obj_map[obj1]
+        max2 = obj_map[obj2]
+        col1 = obj1.lower().replace(" ", "_")
+        col2 = obj2.lower().replace(" ", "_")
+
+        ax.scatter(df[col1], df[col2], label="All trials", alpha=0.6, s=30)
+        pareto_indices = get_pareto_front_indices(df, [(obj1, max1), (obj2, max2)])
+        pareto_points = df.loc[pareto_indices]
+        ax.scatter(
+            pareto_points[col1],
+            pareto_points[col2],
+            color="red",
+            marker="D",
+            s=60,
+            label="Pareto (2-obj)",
+            zorder=5,
+        )
+        ax.set_xlabel(obj1)
+        ax.set_ylabel(obj2)
+        ax.set_title(f"{obj1} vs {obj2}")
+        ax.grid(True, linestyle="--", alpha=0.6)
+        ax.legend()
+
+    for j in range(len(pairs), len(axes_flat)):
+        axes_flat[j].set_visible(False)
+
+    plt.tight_layout()
+    d = os.path.dirname(os.path.abspath(save_path))
+    if d:
+        os.makedirs(d, exist_ok=True)
+    plt.savefig(save_path, dpi=150, bbox_inches="tight")
+    if show:
+        plt.show()
+    else:
+        plt.close()
+    print(f"Pareto pair grid saved to {save_path}")
+
+
 def plot_3d_pareto_front_heatmap(df, objectives_info, save_dir=".", show=False):
     """
     Plots a 3D scatter plot using the first three objectives as axes

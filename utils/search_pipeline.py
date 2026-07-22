@@ -109,11 +109,27 @@ def _load_dataset_for_local_search(
     Recreate the dataset splits for local search, mirroring the tutorial scripts.
     """
     if dataset_name == "qubit":
+        # If the best architecture YAML includes a dataset window, prefer it so local search
+        # matches the window used during global search.
+        results_dir = (Path(config_path).resolve().parent / dataset_cfg.get("results_dir", "")).resolve()
+        arch_yaml_path = Path(dataset_cfg.get("architecture_yaml", "")) if dataset_cfg.get("architecture_yaml") else None
+        candidate = Path(config_path).resolve().parent / "best_model_for_local_search.yaml"
+        if candidate.is_file():
+            try:
+                arch = yaml.safe_load(open(candidate, "r"))
+                window = (arch or {}).get("metadata", {}).get("dataset_window")
+                if isinstance(window, dict):
+                    dataset_cfg = dict(dataset_cfg)
+                    dataset_cfg["start_location"] = int(window.get("start_location", dataset_cfg.get("start_location", 0)))
+                    dataset_cfg["window_size"] = int(window.get("window_size", dataset_cfg.get("window_size", 400)))
+            except Exception:
+                pass
+
         loader_kwargs = _resolve_dataset_loader_kwargs(
             dataset_cfg,
             config_path,
             flatten_override=dataset_cfg.get("flatten", True),
-            one_hot_override=True,
+            one_hot_override=dataset_cfg.get("one_hot", True),
         )
         x_train, y_train, _, _ = load_generic_dataset(
             dataset_name=dataset_name,
