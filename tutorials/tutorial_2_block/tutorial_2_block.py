@@ -5,7 +5,7 @@ Demonstrates global (NSGA-II) + local (combined QAT + pruning) search using
 Conv, MLP, and ConvAttn blocks.
 
 Run from repo root:
-    /opt/miniconda3/envs/snac-pack-refactor/bin/python tutorials/tutorial_2_block/tutorial_2_block.py
+    python tutorials/tutorial_2_block/tutorial_2_block.py
 """
 
 import os
