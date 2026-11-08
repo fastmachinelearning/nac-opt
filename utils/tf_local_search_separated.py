@@ -214,11 +214,18 @@ def run_pruning_only_loop(base_model, dataset, config, results_dir, loss_functio
     return pd.read_csv(log_filename)
 
 def run_qat_only_loop(base_model, dataset, config, results_dir, loss_function, compile_metrics=None):
-    """Performs QAT fine-tuning for various precisions on a non-pruned QKeras model."""
+    """Performs QAT for various precisions on a non-pruned QKeras model.
+
+    ``base_model`` comes from ``load_model_from_yaml``, which rebuilds the architecture
+    with fresh (untrained) weights. So each precision trains its QAT model from that
+    initialization, the same way the combined local search does its QAT warmup, at
+    ``qat_settings.learning_rate`` (default 1e-3, matching the combined search).
+    """
     print("\n" + "-"*20 + " Starting QAT-Only Experiment " + "-"*20)
     _metrics = compile_metrics if compile_metrics is not None else ["accuracy"]
     x_train, y_train, x_val, y_val = dataset
     qat_config = config['qat_settings']
+    qat_learning_rate = float(qat_config.get("learning_rate", 1e-3))
 
     log_filename = os.path.join(results_dir, "qat_log.csv")
     with open(log_filename, "w") as f: f.write("Precision,TotalBits,IntBits,Accuracy\n")
@@ -227,15 +234,14 @@ def run_qat_only_loop(base_model, dataset, config, results_dir, loss_function, c
         total_bits, int_bits = precision['total_bits'], precision['int_bits']
         precision_str = f"<{total_bits},{int_bits}>"
         print(f"\nRunning QAT for Precision: {precision_str}")
-        
+
         qat_model = convert_to_qat_model(base_model, total_bits, int_bits)
-        # Example with the Adam optimizer
-        # qat_optimizer = tf.keras.optimizers.Adam(learning_rate=1e-5, clipnorm=1.0)
-        qat_optimizer = tf.keras.optimizers.Adam(learning_rate=5e-5)
+        # The weights are untrained, so this is QAT training, not fine-tuning. A fine-tuning
+        # rate (previously 5e-5) leaves the model near chance after a few epochs.
+        qat_optimizer = tf.keras.optimizers.Adam(learning_rate=qat_learning_rate)
         qat_model.compile(optimizer=qat_optimizer, loss=loss_function, metrics=_metrics)
 
-
-        print(f"--> Fine-tuning QAT model for {qat_config['epochs']} epochs...")
+        print(f"--> Training QAT model for {qat_config['epochs']} epochs (lr={qat_learning_rate:g})...")
         qat_model.fit(x_train, y_train, validation_data=(x_val, y_val), epochs=qat_config['epochs'], 
                       batch_size=128, verbose=1)
         
