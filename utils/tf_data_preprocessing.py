@@ -3,6 +3,7 @@ TensorFlow data preprocessing utilities for various datasets.
 Includes MNIST and other dataset preprocessing functions.
 """
 
+import importlib
 import os
 import tensorflow as tf
 import numpy as np
@@ -121,7 +122,6 @@ def load_and_preprocess_fashion_mnist(resize_val=8, subset_size=None, normalize=
     print(f"  y_train shape: {y_train.shape}, y_val shape: {y_val.shape}")
 
     return x_train, y_train, x_val, y_val
-    
 
 
 def create_tf_dataset(x_data, y_data, batch_size=32, shuffle=True, buffer_size=10000):
@@ -139,32 +139,46 @@ def create_tf_dataset(x_data, y_data, batch_size=32, shuffle=True, buffer_size=1
         tf.data.Dataset object
     """
     dataset = tf.data.Dataset.from_tensor_slices((x_data, y_data))
-    
+
     if shuffle:
         dataset = dataset.shuffle(buffer_size=buffer_size)
-    
+
     dataset = dataset.batch(batch_size)
     dataset = dataset.prefetch(tf.data.AUTOTUNE)
-    
+
     return dataset
 
 
-def load_generic_dataset(dataset_name, **kwargs):
+def _import_loader(loader_path):
+    """Import a dataset loader given as ``"package.module:function"``."""
+    module_name, sep, func_name = str(loader_path).partition(":")
+    if not sep or not module_name or not func_name:
+        raise ValueError(f"loader_path must look like 'package.module:function', got {loader_path!r}")
+    return getattr(importlib.import_module(module_name), func_name)
+
+
+def load_generic_dataset(dataset_name, loader_path=None, **kwargs):
     """
     Generic dataset loader that dispatches to specific dataset preprocessing functions.
 
     Parameters:
         dataset_name (str): Name of the dataset to load
+        loader_path (str, optional): ``"package.module:function"`` of a custom loader. When
+            given it is used instead of the built-in loaders (this is what a dataset spec's
+            ``loader_path`` refers to). It is called with ``**kwargs`` and must return
+            ``(x_train, y_train, x_val, y_val)``.
         **kwargs: Additional arguments specific to each dataset (passed through)
 
     Returns:
         tuple: (x_train, y_train, x_val, y_val) - Preprocessed numpy arrays
 
-    To add a new dataset:
+    To add a new dataset, either pass ``loader_path`` or:
         1. Create a load_and_preprocess_<name>() function above
         2. Register it in the loaders dict below
-        3. See CUSTOM_DATASETS.md for detailed instructions
     """
+    if loader_path:
+        return _import_loader(loader_path)(**kwargs)
+
     loaders = {
         'mnist': load_and_preprocess_mnist,
         'fashion_mnist': load_and_preprocess_fashion_mnist,
@@ -176,8 +190,8 @@ def load_generic_dataset(dataset_name, **kwargs):
     if dataset_name not in loaders:
         raise ValueError(
             f"Dataset '{dataset_name}' not supported. "
-            f"Available: {list(loaders.keys())}\n"
-            f"See CUSTOM_DATASETS.md for how to add custom datasets."
+            f"Available: {list(loaders.keys())}. "
+            f"For a custom dataset, pass loader_path='package.module:function'."
         )
 
     return loaders[dataset_name](**kwargs)
