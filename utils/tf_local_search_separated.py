@@ -130,45 +130,58 @@ def loss_and_compile_metrics_from_arch_yaml(architecture_yaml_path):
 
 
 def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) -> tf.keras.Model:
+    """
+    Rebuild ``model`` with QKeras layers at ``<total_bits, int_bits>`` and copy its weights.
+
+    Dense -> QDense and Conv2D -> QConv2D with quantized kernels and biases. Activation layers
+    keep their nonlinearity: ``relu`` becomes ``QActivation(quantized_relu)``, and other
+    nonlinear activations (tanh, sigmoid, gelu, leaky_relu, ...) are kept and followed by a
+    ``quantized_bits`` QActivation that quantizes their output. Linear and softmax activations
+    are left unchanged. Other layers (BatchNormalization, Flatten, ReLU/LeakyReLU layers, ...)
+    are copied as they are.
+    """
     weight_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
     bias_quantizer = quantizers.quantized_bits(total_bits, int_bits, alpha=1)
-    def get_quantized_layer(layer):
+    weight_args = ['kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']
+
+    def get_quantized_layers(layer):
+        """Return the replacement layers; the first one receives ``layer``'s weights."""
         config = layer.get_config()
         if isinstance(layer, tf.keras.layers.Dense):
-            for key in ['kernel_regularizer', 'bias_regularizer', 'activity_regularizer', 'kernel_constraint', 'bias_constraint']: config.pop(key, None)
+            for key in weight_args: config.pop(key, None)
             config['kernel_quantizer'], config['bias_quantizer'] = weight_quantizer, bias_quantizer
-            return QDense.from_config(config)
-        # if isinstance(layer, tf.keras.layers.Activation) and 'relu' in config['activation']:
-        #     return QActivation(activation=quantizers.quantized_relu(total_bits, int_bits))
-        # return layer.__class__.from_config(config)
-        # Generalize QActivation to handle all non-linear activations
+            return [QDense.from_config(config)]
+        if isinstance(layer, tf.keras.layers.Conv2D):
+            # Conv layers need the same treatment, otherwise they stay full-precision floats
+            # while the rest of the model is quantized.
+            for key in weight_args: config.pop(key, None)
+            config['kernel_quantizer'], config['bias_quantizer'] = weight_quantizer, bias_quantizer
+            return [QConv2D.from_config(config)]
         if isinstance(layer, tf.keras.layers.Activation):
-            activation_name = config['activation']
+            activation_name = str(config['activation']).lower()
             # Avoid quantizing linear/identity or final softmax layers
             if 'linear' in activation_name or 'softmax' in activation_name:
-                return layer
-            # For all other activations (relu, gelu, leaky_relu, etc.)
-            # wrap them in a QActivation layer to quantize their output.
-            return QActivation(activation=f"quantized_bits({total_bits}, {int_bits})")
+                return [layer]
+            if activation_name == 'relu':
+                return [QActivation(activation=quantizers.quantized_relu(total_bits, int_bits))]
+            # A bare quantized_bits QActivation is a (clipped) identity, so replacing e.g. tanh
+            # with it would remove the nonlinearity. Keep the activation, then quantize its output.
+            return [layer.__class__.from_config(config),
+                    QActivation(activation=quantizers.quantized_bits(total_bits, int_bits))]
+        return [layer.__class__.from_config(config)]
 
-            
-        return layer.__class__.from_config(config)
     input_tensor = tf.keras.Input(shape=model.input_shape[1:])
     x = input_tensor
     new_layers, original_layers_flat = [], []
     for layer in model.layers:
         if isinstance(layer, tf.keras.layers.InputLayer): continue
-        if isinstance(layer, tf.keras.Sequential):
-            original_layers_flat.extend(layer.layers)
-            for sub_layer in layer.layers:
-                q_sub_layer = get_quantized_layer(sub_layer)
-                new_layers.append(q_sub_layer)
-                x = q_sub_layer(x)
-        else:
-            original_layers_flat.append(layer)
-            q_layer = get_quantized_layer(layer)
-            new_layers.append(q_layer)
-            x = q_layer(x)
+        sub_layers = layer.layers if isinstance(layer, tf.keras.Sequential) else [layer]
+        for sub_layer in sub_layers:
+            q_layers = get_quantized_layers(sub_layer)
+            for q_layer in q_layers:
+                x = q_layer(x)
+            original_layers_flat.append(sub_layer)
+            new_layers.append(q_layers[0])
     qat_model = tf.keras.Model(inputs=input_tensor, outputs=x)
     for i, new_layer in enumerate(new_layers):
         if original_layers_flat[i].get_weights():

@@ -578,9 +578,11 @@ class GlobalSearchTF:
                             'params': {'channels': channels, 'kernels': kernels, 'activations': act_names, 'normalizations': norms}
                         })
 
+                        # estimate_conv_bops walks the block layer by layer from its *input*
+                        # size, so count before shrinking current_img_size for the next block.
+                        bops += estimate_conv_bops(channels, kernels, current_img_size)
                         current_img_size -= size_reduction
                         current_channels = channels[-1]
-                        bops += estimate_conv_bops(channels, kernels, current_img_size)
 
                     elif block_type == "MLP":
                         if not is_flattened:

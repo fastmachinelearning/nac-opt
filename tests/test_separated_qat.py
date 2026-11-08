@@ -72,6 +72,7 @@ def test_qat_only_loop_trains_from_untrained_yaml_model(tmp_path):
         run_pruning=False,
     )
 
-    # Chance is 25%. With the old 5e-5 learning rate it stayed near or below chance (~0.06 here).
+    # Chance is 25%. With the old 5e-5 learning rate it stayed near or below chance (~0.06 here);
+    # a trained ReLU model reaches 0.72-1.0 after 2 epochs depending on the seed.
     assert len(qat_df) == 2
-    assert (qat_df["Accuracy"] > 0.75).all(), qat_df
+    assert (qat_df["Accuracy"] > 0.5).all(), qat_df
