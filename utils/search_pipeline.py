@@ -191,6 +191,8 @@ def _run_global_search_from_config(
         use_hardware_metrics=s_cfg["use_hardware_metrics"],
         one_hot=ds_cfg.get("one_hot", False),
         n_folds=s_cfg.get("n_folds", 1),
+        seed=s_cfg.get("seed"),
+        population_size=s_cfg.get("population_size"),
     )
 
     loader_kwargs = _resolve_dataset_loader_kwargs(

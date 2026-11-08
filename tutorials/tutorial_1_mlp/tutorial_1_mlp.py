@@ -82,6 +82,8 @@ study = searcher.run_search(
     objectives=obj_names,
     maximize_flags=max_flags,
     use_hardware_metrics=s_cfg["use_hardware_metrics"],
+    seed=s_cfg.get("seed"),
+    population_size=s_cfg.get("population_size"),
 )
 
 print("\nGlobal Search Complete!")

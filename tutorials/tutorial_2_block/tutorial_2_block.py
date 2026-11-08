@@ -85,6 +85,8 @@ study = searcher.run_search(
     use_hardware_metrics=s_cfg["use_hardware_metrics"],
     one_hot=ds_cfg["one_hot"],
     n_folds=n_folds,
+    seed=s_cfg.get("seed"),
+    population_size=s_cfg.get("population_size"),
 )
 
 print("\nGlobal Search Complete!")

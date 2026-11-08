@@ -96,6 +96,11 @@ def parse_args():
                         help='Number of training epochs per trial')
     parser.add_argument('--n_folds', type=int, default=1,
                         help='Number of folds for cross-validation (1 = no CV)')
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Seed for the NSGA-II sampler and per-trial training (each worker adds its SLURM_PROCID '
+                             'to the sampler seed). Default: unseeded')
+    parser.add_argument('--population_size', type=int, default=None,
+                        help="NSGA-II population size (default: Optuna's default, 50)")
     
     # Dataset parameters
     parser.add_argument('--subset_size', type=int, default=1000000,
@@ -337,6 +342,8 @@ def run_search(args):
         flatten=args.flatten,
         storage=storage,  # Pass storage backend
         study_name=study_name,  # Pass study name
+        seed=args.seed,
+        population_size=args.population_size,
     )
     
     print("\n" + "=" * 70)
