@@ -203,3 +203,82 @@ def test_qat_conversion_keeps_nonlinear_activations(tmp_path):
     assert "quantized_relu" in str(qat.layers[6].get_config()["activation"])
     x = np.random.default_rng(1).normal(size=(16, 10)).astype("float32")
     assert np.max(np.abs(qat.predict(x, verbose=0) - model.predict(x, verbose=0))) < 1e-2
+
+
+def _old_compute_baseline_bops(model, input_shape, bit_width=32):
+    """The implementation before conv support, kept here as a reference for MLP-only models."""
+    bops = 0
+    current_input_shape = input_shape
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.Sequential):
+            for sub_layer in layer.layers:
+                if isinstance(sub_layer, tf.keras.layers.Dense):
+                    bops += get_linear_bops_tf(sub_layer, bit_width, input_shape=current_input_shape)
+                    current_input_shape = (current_input_shape[0], sub_layer.units)
+        elif isinstance(layer, tf.keras.layers.Dense):
+            bops += get_linear_bops_tf(layer, bit_width, input_shape=current_input_shape)
+            current_input_shape = (current_input_shape[0], layer.units)
+        elif isinstance(layer, tf.keras.layers.Flatten):
+            flat_dim = 1
+            for d in current_input_shape[1:]:
+                flat_dim *= d
+            current_input_shape = (current_input_shape[0], flat_dim)
+    return bops
+
+
+@pytest.mark.parametrize(
+    "widths,input_shape",
+    [([20, 32, 8, 4], [20]), ([64, 128, 64, 10], [64]), ([36, 16, 16, 16, 3], [6, 6, 1])],
+)
+def test_local_baseline_bops_match_the_old_implementation_for_mlp_models(tmp_path, widths, input_shape):
+    n_hidden = len(widths) - 2
+    components = []
+    if len(input_shape) > 1:
+        components.append({"block_type": "Flatten", "name": "initial_flatten", "params": {}})
+    components.append(
+        {
+            "block_type": "MLP",
+            "name": "classifier_head",
+            "params": {
+                "widths": widths,
+                "activations": ["relu"] * n_hidden + ["softmax"],
+                "normalizations": [None] * (n_hidden + 1),
+            },
+        }
+    )
+    arch = {
+        "architecture": {
+            "model_type": "BlockBased",
+            "input_shape": input_shape,
+            "output_dim": widths[-1],
+            "components": components,
+        }
+    }
+    (tmp_path / "mlp.yaml").write_text(yaml.safe_dump(arch))
+    model = load_model_from_yaml(str(tmp_path / "mlp.yaml"))
+    shape = (1,) + tuple(input_shape)
+    assert _compute_baseline_bops(model, shape) == _old_compute_baseline_bops(model, shape)
+
+
+def test_qat_conversion_keeps_the_output_activation_exact(tmp_path):
+    arch = {
+        "architecture": {
+            "model_type": "BlockBased",
+            "input_shape": [6],
+            "output_dim": 1,
+            "components": [
+                {
+                    "block_type": "MLP",
+                    "name": "classifier_head",
+                    "params": {"widths": [6, 8, 1], "activations": ["tanh", "sigmoid"], "normalizations": [None, None]},
+                }
+            ],
+        }
+    }
+    (tmp_path / "bin.yaml").write_text(yaml.safe_dump(arch))
+    qat = convert_to_qat_model(load_model_from_yaml(str(tmp_path / "bin.yaml")), 4, 1)
+    last = qat.layers[-1]
+    assert type(last) is tf.keras.layers.Activation and last.get_config()["activation"] == "sigmoid"
+    x = np.random.default_rng(2).normal(size=(32, 6)).astype("float32")
+    out = qat.predict(x, verbose=0)
+    assert np.all((out > 0) & (out < 1)) and len(np.unique(out)) > 4  # real probabilities, not a 4-bit grid

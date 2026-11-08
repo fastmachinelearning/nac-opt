@@ -1105,7 +1105,8 @@ class GlobalSearchTF:
         sampler_seed : int, optional
             Seed for the NSGA-II sampler (which architectures get proposed). With a
             ``storage`` backend, ``SLURM_PROCID`` is added so parallel workers do not
-            propose identical trials.
+            propose identical trials. Resuming a seeded study restarts the sampler's random
+            stream, so use a different sampler_seed for a resumed worker.
         train_seed : int, optional
             Seed for model training (weight initialization, batch shuffling). Each
             trial reseeds Python/NumPy/TensorFlow from ``(train_seed, trial.number)``,
@@ -1151,9 +1152,6 @@ class GlobalSearchTF:
                 "deterministic_ops=True needs seed or train_seed: TensorFlow refuses to run unseeded "
                 "random ops (weight initialization) once op determinism is enabled."
             )
-        determinism_was_enabled = _op_determinism_enabled()
-        if deterministic_ops:
-            tf.config.experimental.enable_op_determinism()
         if train_seed is not None:
             tf.keras.utils.set_random_seed(int(train_seed))
         # Store model type and CSV path for incremental writing
@@ -1311,6 +1309,11 @@ class GlobalSearchTF:
 
         # Multi-node support, use storage backend
         if storage is not None:
+            if not study_name:
+                raise ValueError(
+                    "study_name is required with a storage backend: without one every worker would "
+                    "create its own auto-named study instead of sharing one."
+                )
             # load_if_exists avoids a race when several workers start at once, and passing the
             # sampler matters: optuna.load_study() without one falls back to Optuna's default
             # sampler (TPESampler for multi-objective studies in Optuna 5), not NSGA-II.
@@ -1329,7 +1332,12 @@ class GlobalSearchTF:
             if verbose:
                 print("Using in-memory Optuna study (single-node mode)")
 
+        determinism_was_enabled = _op_determinism_enabled()
         try:
+            # Enabled only around optimize() (where all training happens) so that any error
+            # path still reaches the finally below and switches it back off.
+            if deterministic_ops:
+                tf.config.experimental.enable_op_determinism()
             study.optimize(objective, n_trials=n_trials, callbacks=callbacks)
         finally:
             # Op determinism is process-wide; don't leave it on for unseeded code that runs later.

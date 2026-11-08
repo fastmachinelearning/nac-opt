@@ -126,3 +126,35 @@ def test_unseeded_runs_differ_and_determinism_is_switched_back_off(tmp_path):
         return [ast.literal_eval(p) for p in df["params"]]
 
     assert unseeded(tmp_path / "u1") != unseeded(tmp_path / "u2")
+
+
+def test_determinism_is_switched_off_even_when_the_search_fails(tmp_path):
+    from utils.tf_global_search import _op_determinism_enabled
+
+    space = dict(SEARCH_SPACE, output_activation="not_an_activation")  # every trial fails while building
+    searcher = GlobalSearchTF(search_space_path=space, results_dir=str(tmp_path))
+    with pytest.raises(ValueError, match="not_an_activation"):
+        searcher.run_search(
+            model_type="mlp",
+            n_trials=1,
+            epochs=1,
+            dataset="blobs",
+            loader_path="tests.synthetic_data:load_blobs",
+            seed=1,
+            deterministic_ops=True,
+            verbose=False,
+        )
+    assert not _op_determinism_enabled()
+
+
+def test_storage_without_a_study_name_is_rejected(tmp_path):
+    searcher = GlobalSearchTF(search_space_path=dict(SEARCH_SPACE), results_dir=str(tmp_path))
+    with pytest.raises(ValueError, match="study_name is required"):
+        searcher.run_search(
+            model_type="mlp",
+            n_trials=1,
+            epochs=1,
+            dataset="blobs",
+            loader_path="tests.synthetic_data:load_blobs",
+            storage=f"sqlite:///{tmp_path / 's.db'}",
+        )

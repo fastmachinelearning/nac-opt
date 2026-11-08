@@ -172,16 +172,21 @@ def convert_to_qat_model(model: tf.keras.Model, total_bits: int, int_bits: int) 
 
     input_tensor = tf.keras.Input(shape=model.input_shape[1:])
     x = input_tensor
-    new_layers, original_layers_flat = [], []
+    flat_layers = []
     for layer in model.layers:
         if isinstance(layer, tf.keras.layers.InputLayer): continue
-        sub_layers = layer.layers if isinstance(layer, tf.keras.Sequential) else [layer]
-        for sub_layer in sub_layers:
+        flat_layers.extend(layer.layers if isinstance(layer, tf.keras.Sequential) else [layer])
+    new_layers, original_layers_flat = [], []
+    for position, sub_layer in enumerate(flat_layers):
+        if position == len(flat_layers) - 1 and isinstance(sub_layer, tf.keras.layers.Activation):
+            # The output activation (softmax, sigmoid, ...) feeds the loss; keep it exact.
+            q_layers = [sub_layer]
+        else:
             q_layers = get_quantized_layers(sub_layer)
-            for q_layer in q_layers:
-                x = q_layer(x)
-            original_layers_flat.append(sub_layer)
-            new_layers.append(q_layers[0])
+        for q_layer in q_layers:
+            x = q_layer(x)
+        original_layers_flat.append(sub_layer)
+        new_layers.append(q_layers[0])
     qat_model = tf.keras.Model(inputs=input_tensor, outputs=x)
     for i, new_layer in enumerate(new_layers):
         if original_layers_flat[i].get_weights():
