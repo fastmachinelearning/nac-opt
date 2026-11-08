@@ -157,27 +157,19 @@ def _import_loader(loader_path):
     return getattr(importlib.import_module(module_name), func_name)
 
 
-def load_generic_dataset(dataset_name, loader_path=None, **kwargs):
+def _load_dataset_loader(dataset_name=None, loader_path=None):
     """
-    Generic dataset loader that dispatches to specific dataset preprocessing functions.
+    Return the loader function for a dataset without calling it.
 
-    Parameters:
-        dataset_name (str): Name of the dataset to load
-        loader_path (str, optional): ``"package.module:function"`` of a custom loader. When
-            given it is used instead of the built-in loaders (this is what a dataset spec's
-            ``loader_path`` refers to). It is called with ``**kwargs`` and must return
-            ``(x_train, y_train, x_val, y_val)``.
-        **kwargs: Additional arguments specific to each dataset (passed through)
+    ``loader_path`` (``"package.module:function"``) wins when given; otherwise ``dataset_name``
+    must be one of the built-in datasets. ``utils.dataset_catalog`` uses this to describe
+    datasets, and ``load_generic_dataset`` uses it to load them.
 
-    Returns:
-        tuple: (x_train, y_train, x_val, y_val) - Preprocessed numpy arrays
-
-    To add a new dataset, either pass ``loader_path`` or:
-        1. Create a load_and_preprocess_<name>() function above
-        2. Register it in the loaders dict below
+    To add a built-in dataset, create a load_and_preprocess_<name>() function above and
+    register it in the loaders dict below.
     """
     if loader_path:
-        return _import_loader(loader_path)(**kwargs)
+        return _import_loader(loader_path)
 
     loaders = {
         'mnist': load_and_preprocess_mnist,
@@ -193,5 +185,22 @@ def load_generic_dataset(dataset_name, loader_path=None, **kwargs):
             f"Available: {list(loaders.keys())}. "
             f"For a custom dataset, pass loader_path='package.module:function'."
         )
+    return loaders[dataset_name]
 
-    return loaders[dataset_name](**kwargs)
+
+def load_generic_dataset(dataset_name, loader_path=None, **kwargs):
+    """
+    Load a dataset by built-in name or by ``loader_path``.
+
+    Parameters:
+        dataset_name (str): Name of the dataset to load
+        loader_path (str, optional): ``"package.module:function"`` of a custom loader. When
+            given it is used instead of the built-in loaders (this is what a dataset spec's
+            ``loader_path`` refers to). It is called with ``**kwargs`` and must return
+            ``(x_train, y_train, x_val, y_val)``.
+        **kwargs: Additional arguments specific to each dataset (passed through)
+
+    Returns:
+        tuple: (x_train, y_train, x_val, y_val) - Preprocessed numpy arrays
+    """
+    return _load_dataset_loader(dataset_name=dataset_name, loader_path=loader_path)(**kwargs)
