@@ -103,6 +103,30 @@ def _infer_input_shape_yaml(x):
         return [int(shp[1])]          # e.g. qubit: [800]
     return [int(d) for d in shp[1:]]  # e.g. images: [H, W, C]
 
+
+def _op_determinism_enabled():
+    try:
+        from tensorflow.python.framework import config as _tf_config
+
+        return bool(_tf_config.is_op_determinism_enabled())
+    except (ImportError, AttributeError):
+        return False
+
+
+def _disable_op_determinism():
+    try:
+        from tensorflow.python.framework import config as _tf_config
+
+        _tf_config.disable_op_determinism()
+    except (ImportError, AttributeError):
+        pass
+
+
+def _trial_training_seed(train_seed, trial_number):
+    """Deterministic per-trial seed derived from the run's train_seed and the trial number."""
+    return (int(train_seed) * 1_000_003 + int(trial_number)) % (2**31 - 1)
+
+
 def _stratified_k_fold_indices(y, n_folds, one_hot=False):
     """Return list of (train_indices, val_indices) for stratified k-fold splitting."""
     if one_hot:
@@ -473,7 +497,7 @@ class GlobalSearchTF:
                 num_blocks = spaces.get("num_blocks", 3)
                 img_size = spaces.get("initial_img_size", 11)
                 output_dim = spaces.get("output_dim", 10)
-                
+
                 bops = 0
 
                 # Qubit-specific: optionally sample (start_location, window_size) per trial
@@ -526,7 +550,7 @@ class GlobalSearchTF:
                     last_layer_units = 0
                     current_img_size = img_size
                     current_channels = x_train_trial.shape[-1]
-                
+
                 model_components = []
                 feature_extractor_blocks = []
 
@@ -544,7 +568,7 @@ class GlobalSearchTF:
                         if current_img_size - size_reduction <= 0:
                             kernels = [1] * len(kernels)
                             size_reduction = 0
-                        
+
                         # Convert activation names to layer objects
                         acts = [get_activation_tf(name) for name in act_names]
                         conv_block = create_conv_block_tf(channels, kernels, acts, norms, name=f'conv_block_{i}')
@@ -553,10 +577,12 @@ class GlobalSearchTF:
                             'block_type': 'Conv', 'name': f'conv_block_{i}',
                             'params': {'channels': channels, 'kernels': kernels, 'activations': act_names, 'normalizations': norms}
                         })
-                        
+
+                        # estimate_conv_bops walks the block layer by layer from its *input*
+                        # size, so count before shrinking current_img_size for the next block.
+                        bops += estimate_conv_bops(channels, kernels, current_img_size)
                         current_img_size -= size_reduction
                         current_channels = channels[-1]
-                        bops += estimate_conv_bops(channels, kernels, current_img_size)
 
                     elif block_type == "MLP":
                         if not is_flattened:
@@ -564,17 +590,17 @@ class GlobalSearchTF:
                             model_components.append({'block_type': 'Flatten', 'name': f'initial_flatten', 'params': {}})
                             last_layer_units = current_channels * (current_img_size ** 2)
                             is_flattened = True
-                        
+
                         units, act_name, norm = sample_dense_block_tf(trial, f"b{i}_MLP", spaces)
-                        
+
                         dense_layer = tf.keras.layers.Dense(units, name=f'mlp_block_{i}_dense')
                         feature_extractor_blocks.append(dense_layer)
-                        
+
                         if norm == 'batch':
                             feature_extractor_blocks.append(tf.keras.layers.BatchNormalization(name=f'mlp_block_{i}_bn'))
                         if act_name:
                             feature_extractor_blocks.append(get_activation_tf(act_name))
-                        
+
                         model_components.append({
                             'block_type': 'MLP', 'name': f'mlp_block_{i}',
                             'params': {'widths': [last_layer_units, units], 'activations': [act_name], 'normalizations': [norm]}
@@ -610,7 +636,7 @@ class GlobalSearchTF:
 
                 mlp_acts = [get_activation_tf(act) for act in mlp_act_names]
                 classifier_head = build_mlp_from_config_classifier(mlp_widths, mlp_acts, mlp_norms, name='classifier_head')
-                
+
                 model_components.append({
                     'block_type': 'MLP', 'name': 'classifier_head',
                     'params': {'widths': mlp_widths, 'activations': mlp_act_names, 'normalizations': mlp_norms}
@@ -682,7 +708,7 @@ class GlobalSearchTF:
                 }
                 trial_yaml_path = os.path.join(self.trials_dir, f"trial_{trial.number}_arch.yaml")
                 _save_architecture_to_yaml(model_details, trial_yaml_path)
-                
+
                 if verbose:
                     base_msg = f"Trial {trial.number}"
                     if n_folds > 1:
@@ -737,7 +763,6 @@ class GlobalSearchTF:
         Calculate BOPs for MLP architecture using tf_bops utilities.
         """
         return get_MLP_bops_tf(model, input_shape=(1, input_size), bit_width=bit_width)
-
 
     def create_mlp_objective(self, x_train, y_train, x_val, y_val, epochs=10,
                             use_hardware_metrics=False, verbose=True):
@@ -914,7 +939,7 @@ class GlobalSearchTF:
         """
         # try:
         #     from rule4ml.models.estimators import MultiModelEstimator
-            
+
         #     # Patch model layers with shape info, which is required by rule4ml.
         #     for layer in model.layers:
         #         if hasattr(layer, "input_spec") and layer.input_spec and layer.input_spec.shape:
@@ -930,12 +955,12 @@ class GlobalSearchTF:
 
         #     estimator = MultiModelEstimator()
         #     estimator.load_default_models()
-            
+
         #     pred_df = estimator.predict([model], [self.hls_config])
 
         try:
             from rule4ml.models.wrappers import MultiModelWrapper
-            
+
             # Patch model layers with shape info, which is required by rule4ml.
             for layer in model.layers:
                 if hasattr(layer, "input_spec") and layer.input_spec and layer.input_spec.shape:
@@ -953,7 +978,7 @@ class GlobalSearchTF:
             estimator.load_default_models()
 
             pred_df = estimator.predict([model], hls_configs=[self.hls_config])
-            
+
             if not pred_df.empty:
                 results = pred_df.iloc[0]
                 lut = float(results.get("LUT (%)", 0) or 0)
@@ -977,7 +1002,7 @@ class GlobalSearchTF:
                 "avg_resource": avg_resource,
                 "clock_cycles": clock_cycles,
             }
-            
+
         except ImportError:
             # Re-raise to ensure the user knows rule4ml is missing
             raise ImportError("rule4ml package is required for hardware metrics calculation. Please install it.")
@@ -992,7 +1017,6 @@ class GlobalSearchTF:
                 "avg_resource": 100.0,
                 "clock_cycles": 1e9,
             }
-
 
     def run_search( # changed so that dataset_kwargs could be accepted
         self,
@@ -1011,6 +1035,11 @@ class GlobalSearchTF:
         callbacks=None,  # <-- NEW: Optuna callbacks for visualization
         storage=None,  # <-- NEW: Optuna storage backend (for multi-node)
         study_name=None,  # <-- NEW: Optuna study name (for multi-node)
+        seed=None,
+        sampler_seed=None,
+        train_seed=None,
+        population_size=None,
+        deterministic_ops=False,
         **dataset_kwargs,  # <-- NEW: forward arbitrary dataset loader args
     ):
         """
@@ -1070,6 +1099,23 @@ class GlobalSearchTF:
             studies. When set, each worker writes a rank-specific CSV.
         study_name : str, optional
             Name of the Optuna study when ``storage`` is provided.
+        seed : int, optional
+            Master seed. Used for both ``sampler_seed`` and ``train_seed`` unless
+            those are given. ``None`` (default) keeps the previous unseeded behaviour.
+        sampler_seed : int, optional
+            Seed for the NSGA-II sampler (which architectures get proposed). With a
+            ``storage`` backend, ``SLURM_PROCID`` is added so parallel workers do not
+            propose identical trials. Resuming a seeded study restarts the sampler's random
+            stream, so use a different sampler_seed for a resumed worker.
+        train_seed : int, optional
+            Seed for model training (weight initialization, batch shuffling). Each
+            trial reseeds Python/NumPy/TensorFlow from ``(train_seed, trial.number)``,
+            so a trial's training does not depend on which trials ran before it.
+        population_size : int, optional
+            NSGA-II population size. ``None`` uses Optuna's default (50).
+        deterministic_ops : bool, optional
+            If True, call ``tf.config.experimental.enable_op_determinism()`` so that
+            seeded runs are bit-for-bit repeatable (can be slower, mostly on GPU).
         **dataset_kwargs
             Additional keyword arguments forwarded into ``load_generic_dataset``
             (e.g., data directory, qubit window specification).
@@ -1091,6 +1137,23 @@ class GlobalSearchTF:
         """
         # Record a timestamp for this run (used in CSV metadata)
         self.run_timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Resolve seeds before anything random happens. With a shared storage backend every
+        # worker gets its own sampler seed; trial numbers are already unique across workers.
+        worker_rank = int(os.environ.get("SLURM_PROCID", "0")) if storage is not None else 0
+        if sampler_seed is None:
+            sampler_seed = seed
+        if sampler_seed is not None:
+            sampler_seed = int(sampler_seed) + worker_rank
+        if train_seed is None:
+            train_seed = seed
+        if deterministic_ops and train_seed is None:
+            raise ValueError(
+                "deterministic_ops=True needs seed or train_seed: TensorFlow refuses to run unseeded "
+                "random ops (weight initialization) once op determinism is enabled."
+            )
+        if train_seed is not None:
+            tf.keras.utils.set_random_seed(int(train_seed))
         # Store model type and CSV path for incremental writing
         self.current_model_type = model_type
         # Multi-node: each worker writes its own CSV to avoid append races; merge after job
@@ -1210,56 +1273,106 @@ class GlobalSearchTF:
         else:
             raise ValueError(f"Model type '{model_type}' not supported. Use 'mlp' or 'block'.")
 
+        # Per-trial training seed: reseed Python/NumPy/TF at the start of every trial so a
+        # trial's weight init and shuffling depend only on (train_seed, trial.number).
+        if train_seed is not None:
+            unseeded_objective = objective
+
+            def objective(trial):
+                tf.keras.utils.set_random_seed(_trial_training_seed(train_seed, trial.number))
+                return unseeded_objective(trial)
+
         # Set up optimization directions
         directions = ["maximize" if flag else "minimize" for flag in self.maximize_flags]
-        
+
+        sampler_kwargs = {}
+        if sampler_seed is not None:
+            sampler_kwargs["seed"] = int(sampler_seed)
+        if population_size is not None:
+            sampler_kwargs["population_size"] = int(population_size)
+        sampler = optuna.samplers.NSGAIISampler(**sampler_kwargs)
+        self._write_search_settings(
+            dict(
+                seed=seed,
+                sampler_seed=sampler_seed,
+                train_seed=train_seed,
+                population_size=getattr(sampler, "_population_size", population_size),
+                deterministic_ops=bool(deterministic_ops),
+                n_trials=n_trials,
+                epochs=epochs,
+                model_type=model_type,
+                dataset=dataset,
+                optuna_version=optuna.__version__,
+                tensorflow_version=tf.__version__,
+            )
+        )
+
         # Multi-node support, use storage backend
         if storage is not None:
-            # Storage provided, try to load existing study or create new one
-            try:
-                study = optuna.load_study(study_name=study_name, storage=storage)
-                if verbose:
-                    print(f"Loaded existing Optuna study: {study_name}")
-            except KeyError:
-                # Study doesn't exist, create it
-                study = optuna.create_study(
-                    directions=directions,
-                    sampler=optuna.samplers.NSGAIISampler(),
-                    storage=storage,
-                    study_name=study_name
+            if not study_name:
+                raise ValueError(
+                    "study_name is required with a storage backend: without one every worker would "
+                    "create its own auto-named study instead of sharing one."
                 )
-                if verbose:
-                    print(f"Created new Optuna study: {study_name}")
+            # load_if_exists avoids a race when several workers start at once, and passing the
+            # sampler matters: optuna.load_study() without one falls back to Optuna's default
+            # sampler (TPESampler for multi-objective studies in Optuna 5), not NSGA-II.
+            study = optuna.create_study(
+                directions=directions,
+                sampler=sampler,
+                storage=storage,
+                study_name=study_name,
+                load_if_exists=True,
+            )
+            if verbose:
+                print(f"Using Optuna study '{study_name}' (created or loaded) with NSGA-II")
         else:
             # No storage - single-node in-memory study
-            study = optuna.create_study(directions=directions, sampler=optuna.samplers.NSGAIISampler())
+            study = optuna.create_study(directions=directions, sampler=sampler)
             if verbose:
                 print("Using in-memory Optuna study (single-node mode)")
-        
-        study.optimize(objective, n_trials=n_trials, callbacks=callbacks)
 
+        determinism_was_enabled = _op_determinism_enabled()
+        try:
+            # Enabled only around optimize() (where all training happens) so that any error
+            # path still reaches the finally below and switches it back off.
+            if deterministic_ops:
+                tf.config.experimental.enable_op_determinism()
+            study.optimize(objective, n_trials=n_trials, callbacks=callbacks)
+        finally:
+            # Op determinism is process-wide; don't leave it on for unseeded code that runs later.
+            if deterministic_ops and not determinism_was_enabled:
+                _disable_op_determinism()
 
         self.save_results(model_type, study)
         if verbose:
             self.print_best_trials(study)
         return study
 
-
+    def _write_search_settings(self, settings):
+        """Save the seeds and sampler settings next to the results so a run can be repeated."""
+        rank = os.environ.get("SLURM_PROCID")
+        if rank is not None and "_rank" in (self.csv_file_path or ""):
+            name = f"search_settings_rank{rank}.yaml"
+        else:
+            name = "search_settings.yaml"
+        with open(os.path.join(self.results_dir, name), "w") as f:
+            yaml.safe_dump(settings, f, sort_keys=False)
 
     def _append_trial_to_csv(self, result_data):
         """Append a single trial result to the CSV file incrementally."""
         if self.csv_file_path is None:
             return  # CSV not initialized yet
-        
+
         trial_data = result_data.copy()
         if self.run_timestamp is not None:
             trial_data['run_timestamp'] = self.run_timestamp
-        
+
         df_trial = pd.DataFrame([trial_data])
         file_exists = os.path.exists(self.csv_file_path)
         write_header = not file_exists or os.path.getsize(self.csv_file_path) == 0
         df_trial.to_csv(self.csv_file_path, mode='a', header=write_header, index=False)
-    
+
     def save_results(self, model_type, study):
         # Results are already written incrementally; overwrite with full in-memory data for this worker
         df = pd.DataFrame(self.results)
@@ -1300,7 +1413,6 @@ class GlobalSearchTF:
         plot_pareto_fronts(df, obj_info, save_dir=self.results_dir)
         if len(self.objective_names) >= 4:
             plot_3d_pareto_front_heatmap(df, obj_info, save_dir=self.results_dir)
-
 
     def _select_best_trial_row(self, df):
         constraints = self.selection_constraints or {}
@@ -1359,7 +1471,6 @@ class GlobalSearchTF:
         selected = df.loc[df["performance_metric"].idxmax()]
         return selected, None
 
-
     def print_best_trials(self, study):
         print("\n" + "="*50 + "\nBEST TRIALS FOUND BY OPTUNA\n" + "="*50)
         for i, trial in enumerate(study.best_trials):
@@ -1381,8 +1492,6 @@ def sample_dense_block_tf(trial, prefix, search_space):
     norm = trial.suggest_categorical(f"{prefix}_norm", norm_space)
 
     return units, act_name, norm
-
-
 
 
 def run_mlp_search(

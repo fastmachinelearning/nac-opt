@@ -42,68 +42,117 @@ def get_activation_layer(activation_name):
         return Activation(activation_name)
 
 
-def build_mlp_from_config(config, input_size=None, num_classes=None, learning_rate=0.001):
+def _mlp_hidden_layer_specs(config):
+    """
+    Return the hidden layers of an MLP config as ``(units, activation, normalization)``.
+
+    Two config formats are accepted:
+
+    - List format (what ``GlobalSearchTF.create_mlp_objective`` produces):
+      ``hidden_units``, ``activations`` and ``normalizations`` are equal-length
+      lists, one entry per hidden layer. ``normalizations`` entries are
+      ``"batch"`` or ``None``.
+    - Legacy numbered format (used by ``create_model_from_trial``):
+      ``hidden_units1``/``activation1``/``batchnorm1`` and, when
+      ``num_layers >= 3``, ``hidden_units2``/``activation2``/``batchnorm2``.
+    """
+    if "hidden_units" in config:
+        units = list(config["hidden_units"])
+        acts = list(config.get("activations", [None] * len(units)))
+        norms = list(config.get("normalizations", [None] * len(units)))
+        if not (len(units) == len(acts) == len(norms)):
+            raise ValueError(
+                "MLP config lists must have equal length: "
+                f"hidden_units={len(units)}, activations={len(acts)}, "
+                f"normalizations={len(norms)}"
+            )
+        return list(zip(units, acts, norms))
+
+    specs = [
+        (
+            config["hidden_units1"],
+            config.get("activation1"),
+            "batch" if config.get("batchnorm1", False) else None,
+        )
+    ]
+    if config.get("num_layers", 2) >= 3:
+        specs.append(
+            (
+                config["hidden_units2"],
+                config.get("activation2"),
+                "batch" if config.get("batchnorm2", False) else None,
+            )
+        )
+    return specs
+
+
+def _mlp_loss_and_metrics(num_classes, output_activation):
+    """
+    Pick a loss and accuracy metric that match the output head.
+
+    A linear head (``None``/``"linear"``) is treated as logits. A single-unit
+    head is a binary classifier, matching
+    ``tf_global_search._binary_loss_and_metrics_from_final_activation``.
+    """
+    act = "" if output_activation is None else str(output_activation).strip().lower()
+    from_logits = act in ("", "none", "null", "linear", "identity")
+    if num_classes == 1:
+        loss = tf.keras.losses.BinaryCrossentropy(from_logits=from_logits)
+        metrics = [tf.keras.metrics.BinaryAccuracy(name="accuracy", threshold=0.0 if from_logits else 0.5)]
+        return loss, metrics
+    return tf.keras.losses.CategoricalCrossentropy(from_logits=from_logits), ["accuracy"]
+
+
+def build_mlp_from_config(config, input_size=None, num_classes=None, learning_rate=0.001, output_activation="softmax"):
     """
     Creates a simple MLP model based on configuration.
-    
+
     Parameters:
-        config (dict): Model configuration containing:
-            - num_layers: Number of layers (2 or 3)
-            - hidden_units1, activation1, batchnorm1: First layer params
-            - hidden_units2, activation2, batchnorm2: Second layer params (if num_layers=3)
+        config (dict): Model configuration, in either format accepted by
+            ``_mlp_hidden_layer_specs``:
+            - list format: ``hidden_units``, ``activations``, ``normalizations``
+            - legacy format: ``num_layers``, ``hidden_units1``/``activation1``/
+              ``batchnorm1``, ``hidden_units2``/``activation2``/``batchnorm2``
         input_size (int): Input dimension
-        num_classes (int): Number of output classes
+        num_classes (int): Number of output units
         learning_rate (float): Learning rate for optimizer
-    
+        output_activation (str or None): Activation of the output layer.
+            ``None``/``"linear"`` produces logits and a ``from_logits`` loss.
+
     Returns:
         Compiled Keras model
     """
     model = Sequential(name="MLP_Model")
-    
+
     if input_size is not None:
         model.add(Input(shape=(input_size,)))
-    
-    # First hidden layer
-    if config.get("batchnorm1", False):
-        model.add(Dense(config["hidden_units1"], use_bias=False))
-        model.add(BatchNormalization())
-        if config.get("activation1") is not None:
-            model.add(Activation(config["activation1"]))
-    else:
-        if config.get("activation1") is not None:
-            model.add(Dense(config["hidden_units1"], activation=config["activation1"]))
-        else:
-            model.add(Dense(config["hidden_units1"]))
-    
-    # Optional second hidden layer
-    if config.get("num_layers", 2) >= 3:
-        if config.get("batchnorm2", False):
-            model.add(Dense(config["hidden_units2"], use_bias=False))
+
+    for units, activation, normalization in _mlp_hidden_layer_specs(config):
+        if normalization == "batch":
+            # Dense -> BatchNorm -> Activation, bias is redundant before BN
+            model.add(Dense(units, use_bias=False))
             model.add(BatchNormalization())
-            if config.get("activation2") is not None:
-                model.add(Activation(config["activation2"]))
+            if activation is not None:
+                model.add(Activation(activation))
         else:
-            if config.get("activation2") is not None:
-                model.add(Dense(config["hidden_units2"], activation=config["activation2"]))
-            else:
-                model.add(Dense(config["hidden_units2"]))
-    
+            model.add(Dense(units, activation=activation))
+
     # Output layer
     if num_classes is not None:
-        model.add(Dense(num_classes, activation="softmax"))
-    
+        model.add(Dense(num_classes, activation=output_activation))
+
     # Build and compile
     if input_size is not None:
         model.build((None, input_size))
-    
+
+    loss, metrics = _mlp_loss_and_metrics(num_classes, output_activation)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
-        loss="categorical_crossentropy",
-        metrics=["accuracy"]
+        loss=loss,
+        metrics=metrics,
     )
-    
-    return model
 
+    return model
 
 
 def build_deepsets_model(phi_config, rho_config, aggregator_type='mean', 

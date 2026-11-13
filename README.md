@@ -42,6 +42,15 @@ Then install the remaining dependencies:
 pip install -r requirements.txt
 ```
 
+On macOS 27 (Apple Silicon), use `python=3.11` instead of 3.10. The newest SciPy that supports Python 3.10 (1.15.3) fails to load there (`dyld` rejects its `__thread_bss` section), which breaks the `sklearn`, `qkeras` and `rule4ml` imports. TensorFlow 2.15 and the rest of the pins install and run unchanged on 3.11.
+
+To run the tests (CPU only, about 30 seconds):
+
+```bash
+pip install pytest
+python -m pytest tests/
+```
+
 ## MCP and OpenAI-Compatible Agents
 
 The repo includes an MCP server in `mcp/server.py`, an OpenAI-tool bridge in `mcp/openai_compat_agent.py`, and an OpenAI Responses API MCP runner in `mcp/openai_responses_mcp_agent.py`. This makes the repo tools usable from:
@@ -381,6 +390,18 @@ search:
 
 Results (CSV, Pareto front plots, per-trial YAML configs, best model config) are written to the directory specified by `output.results_dir` in the config.
 
+### Reproducible runs (seeds)
+
+By default the search is unseeded, so two runs of the same config give different Pareto fronts. Add a seed to the `search` section of a tutorial config (or pass `--seed` / `--population_size` to `run_global_search.py`):
+
+```yaml
+search:
+  seed: 0              # seeds both the NSGA-II sampler and model training
+  population_size: 20  # NSGA-II population size (Optuna's default is 50)
+```
+
+`GlobalSearchTF.run_search` also accepts `sampler_seed` and `train_seed` separately, to vary which architectures are proposed independently of training randomness, and `deterministic_ops=True` for bit-for-bit repeatable runs. The settings used are saved to `search_settings.yaml` in the results directory.
+
 ### Multi-Node Search (Tutorial 3)
 
 Tutorial 3 supports distributed search across multiple nodes via SLURM:
@@ -429,7 +450,9 @@ utils/
   tf_visualization.py             Pareto front plotting utilities
 data/
   qubit_dataset.py                Qubit IQ data loader
-  qubit/                          Raw qubit .npy data files (X/y train+test)
+  qubit/README.md                 Where to download the qubit IQ data (not in the repo; Tutorial 3
+                                  expects the X/y train+test .npy files in data/qubit/data/)
+tests/                            pytest suite (python -m pytest tests/)
 pytorch_NAC/                      Archived PyTorch NAC code (not used by TF pipeline)
 ```
 

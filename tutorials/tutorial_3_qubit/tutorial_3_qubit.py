@@ -113,6 +113,8 @@ study = searcher.run_search(
     normalize=ds_cfg["normalize"],
     flatten=ds_cfg["flatten"],
     storage=None,  # single-node; pass storage backend here for multi-node
+    seed=s_cfg.get("seed"),
+    population_size=s_cfg.get("population_size"),
 )
 
 print("\nGlobal Search Complete!")

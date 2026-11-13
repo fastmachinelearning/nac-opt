@@ -5,7 +5,7 @@ Demonstrates global (NSGA-II) + local (QAT + pruning) search for MLP architectur
 targeting FPGA deployment.
 
 Run from repo root:
-    /opt/miniconda3/envs/snac-pack-refactor/bin/python tutorials/tutorial_1_mlp/tutorial_1_mlp.py
+    python tutorials/tutorial_1_mlp/tutorial_1_mlp.py
 """
 
 import os
@@ -82,6 +82,8 @@ study = searcher.run_search(
     objectives=obj_names,
     maximize_flags=max_flags,
     use_hardware_metrics=s_cfg["use_hardware_metrics"],
+    seed=s_cfg.get("seed"),
+    population_size=s_cfg.get("population_size"),
 )
 
 print("\nGlobal Search Complete!")

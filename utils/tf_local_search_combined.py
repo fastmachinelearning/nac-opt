@@ -2,6 +2,7 @@
 
 import io
 import logging
+import math
 import os
 import sys
 import time
@@ -28,30 +29,43 @@ from utils.tf_local_search_separated import (
 # --- Helper Functions ---
 
 
-def _compute_baseline_bops(model, input_shape, bit_width=32):
-    """
-    Compute BOPs for a model, recursing into Sequential sub-models.
+def _iter_leaf_layers(model):
+    """Yield a model's layers, descending into nested Sequential/Model blocks."""
+    for layer in model.layers:
+        if isinstance(layer, tf.keras.Model):  # includes tf.keras.Sequential
+            yield from _iter_leaf_layers(layer)
+        else:
+            yield layer
 
-    load_model_from_yaml produces models with Sequential blocks as layers
-    (e.g. mlp_block_0, classifier_head). The standard get_model_bops_tf
-    only sees top-level layers, so this helper flattens the layer tree.
+
+def _conv2d_bops(layer, bit_width=32):
+    """
+    BOPs of a Conv2D layer (channels_last), counted as a Dense layer with k*k*C_in inputs and
+    C_out outputs applied at every output position, using the same per-layer formula as
+    get_linear_bops_tf.
+    """
+    _, h_out, w_out, c_out = layer.output_shape
+    fan_in = int(np.prod(layer.kernel_size)) * int(layer.input_shape[-1])
+    per_position = fan_in * c_out * (bit_width**2 + 2 * bit_width) + c_out * math.log2(max(fan_in, 1)) * bit_width
+    return h_out * w_out * per_position
+
+
+def _compute_baseline_bops(model, input_shape=None, bit_width=32):
+    """
+    Compute BOPs for a float model: Dense and Conv2D layers, recursing into Sequential blocks.
+
+    load_model_from_yaml produces models with Sequential blocks as layers (e.g. conv_block_0,
+    classifier_head), so this walks the layer tree and reads each layer's input shape from the
+    built model. Conv2D layers used to be skipped entirely, so conv models were scored as far
+    cheaper than they are. Dense layers are counted exactly as before. ``input_shape`` is kept
+    for backward compatibility and is no longer needed.
     """
     bops = 0
-    current_input_shape = input_shape
-    for layer in model.layers:
-        if isinstance(layer, tf.keras.Sequential):
-            for sub_layer in layer.layers:
-                if isinstance(sub_layer, tf.keras.layers.Dense):
-                    bops += get_linear_bops_tf(sub_layer, bit_width, input_shape=current_input_shape)
-                    current_input_shape = (current_input_shape[0], sub_layer.units)
-        elif isinstance(layer, tf.keras.layers.Dense):
-            bops += get_linear_bops_tf(layer, bit_width, input_shape=current_input_shape)
-            current_input_shape = (current_input_shape[0], layer.units)
-        elif isinstance(layer, tf.keras.layers.Flatten):
-            flat_dim = 1
-            for d in current_input_shape[1:]:
-                flat_dim *= d
-            current_input_shape = (current_input_shape[0], flat_dim)
+    for layer in _iter_leaf_layers(model):
+        if isinstance(layer, tf.keras.layers.Dense):
+            bops += get_linear_bops_tf(layer, bit_width, input_shape=layer.input_shape)
+        elif isinstance(layer, tf.keras.layers.Conv2D):
+            bops += _conv2d_bops(layer, bit_width)
     return bops
 
 
@@ -92,11 +106,11 @@ def _compute_effective_bops(baseline_bops, total_bits, sparsity):
 
 
 def _compute_model_sparsity(model):
-    """Compute fraction of zero-valued weights across Dense/QDense layers."""
+    """Compute fraction of zero-valued weights across Dense/QDense and Conv2D/QConv2D layers."""
     total_params = 0
     zero_params = 0
-    for layer in model.layers:
-        if isinstance(layer, (tf.keras.layers.Dense, QDense)):
+    for layer in _iter_leaf_layers(model):
+        if isinstance(layer, (tf.keras.layers.Dense, QDense, tf.keras.layers.Conv2D)):
             for w in layer.get_weights():
                 total_params += w.size
                 zero_params += np.count_nonzero(w == 0)
